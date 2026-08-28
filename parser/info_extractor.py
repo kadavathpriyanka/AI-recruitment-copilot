@@ -1,7 +1,4 @@
-import spacy
 import re
-
-nlp = spacy.load("en_core_web_sm")
 
 EDUCATION_PATTERNS = [
     re.compile(r'\bb\.?\s?tech\b', re.I),
@@ -34,12 +31,10 @@ EXPERIENCE_KEYWORDS = [
 ]
 
 def get_lines(text):
-    # Bullets are often on the same physical line separated by "•" —
-    # split on that too, not just newlines, so unrelated bullets don't get merged.
     normalized = text.replace("•", "\n")
     return [l.strip() for l in normalized.split("\n") if l.strip()]
 
-def extract_name(text, email, doc):
+def extract_name(text, email):
     lines = get_lines(text)
 
     LINK_WORDS = ["github", "linkedin", "portfolio", "http", "www", "behance", "leetcode"]
@@ -69,9 +64,6 @@ def extract_name(text, email, doc):
         if is_valid_name_line(line):
             return line
 
-    for ent in doc.ents:
-        if ent.label_ == "PERSON":
-            return ent.text
     return None
 
 def extract_education(text):
@@ -103,7 +95,6 @@ def extract_experience(text):
     return matches
 
 def extract_candidate_info(text):
-    doc = nlp(text)
     candidate = {
         "name": None,
         "email": None,
@@ -122,7 +113,7 @@ def extract_candidate_info(text):
     if phone_match:
         candidate["phone"] = phone_match.group(0)
 
-    candidate["name"] = extract_name(text, candidate["email"], doc)
+    candidate["name"] = extract_name(text, candidate["email"])
     candidate["education"] = extract_education(text)
     candidate["certifications"] = extract_certifications(text)
     candidate["experience"] = extract_experience(text)

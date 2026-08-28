@@ -8,16 +8,24 @@ def generate_profile(candidate):
     return df
 
 def process_resume(file_path):
-    if file_path.endswith(".pdf"):
-        text = extract_text_from_pdf(file_path)
-    elif file_path.endswith(".docx"):
-        text = extract_text_from_docx(file_path)
-    else:
-        raise ValueError("Unsupported file format")
+    try:
+        if file_path.endswith(".pdf"):
+            text = extract_text_from_pdf(file_path)
+        elif file_path.endswith(".docx"):
+            text = extract_text_from_docx(file_path)
+        else:
+            raise ValueError("Unsupported file format")
 
-    candidate_info = extract_candidate_info(text)
-    profile = generate_profile(candidate_info)
-    return profile
+        if not text or not text.strip():
+            raise ValueError("No readable text found in file")
+
+        candidate_info = extract_candidate_info(text)
+        profile = generate_profile(candidate_info)
+        return profile
+
+    except Exception as e:
+        print(f"Failed to process {file_path}: {e}")
+        return None
 
 if __name__ == "__main__":
     import os
@@ -32,7 +40,8 @@ if __name__ == "__main__":
         file_path = os.path.join(resume_folder, filename)
         if filename.endswith(".pdf") or filename.endswith(".docx"):
             profile = process_resume(file_path)
-            all_profiles.append(profile)
+            if profile is not None:
+                all_profiles.append(profile)
 
     all_candidates_df = pd.concat(all_profiles, ignore_index=True)
     print(all_candidates_df)

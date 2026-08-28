@@ -55,6 +55,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+CSV_PATH = "data/candidate_profiles.csv"
+
+def load_saved_candidates():
+    if os.path.exists(CSV_PATH):
+        df = pd.read_csv(CSV_PATH)
+        for col in ["education", "skills", "experience", "certifications"]:
+            if col in df.columns:
+                df[col] = df[col].apply(lambda x: eval(x) if isinstance(x, str) and x.startswith("[") else [])
+        return df
+    return pd.DataFrame()
+
 # ---- Sidebar ----
 with st.sidebar:
     st.markdown('<span class="logo-badge">RC</span> &nbsp; **Recruitment Copilot**', unsafe_allow_html=True)
@@ -65,6 +76,12 @@ with st.sidebar:
     st.markdown("💼 Job Postings")
     st.markdown("📈 Analytics")
     st.markdown("⚙️ Settings")
+    st.markdown("---")
+    if st.button("🗑️ Clear all candidates"):
+        st.session_state.all_candidates = pd.DataFrame()
+        if os.path.exists(CSV_PATH):
+            os.remove(CSV_PATH)
+        st.rerun()
 
 # ---- Header ----
 st.title("📄 Resume Parsing & Candidate Profiling")
@@ -72,7 +89,7 @@ st.caption("Upload and process resumes to create structured candidate profiles")
 st.markdown("---")
 
 if "all_candidates" not in st.session_state:
-    st.session_state.all_candidates = pd.DataFrame()
+    st.session_state.all_candidates = load_saved_candidates()
 
 col1, col2 = st.columns([1, 1], gap="large")
 
@@ -88,16 +105,24 @@ with col1:
 
         if uploaded_files:
             os.makedirs("data/uploaded", exist_ok=True)
+            success_count = 0
             for file in uploaded_files:
                 save_path = os.path.join("data/uploaded", file.name)
                 with open(save_path, "wb") as f:
                     f.write(file.getbuffer())
 
                 profile = process_resume(save_path)
-                st.session_state.all_candidates = pd.concat(
-                    [st.session_state.all_candidates, profile], ignore_index=True
-                )
-            st.success(f"✅ Processed {len(uploaded_files)} resume(s)")
+                if profile is not None:
+                    st.session_state.all_candidates = pd.concat(
+                        [st.session_state.all_candidates, profile], ignore_index=True
+                    )
+                    success_count += 1
+                else:
+                    st.error(f"⚠️ Couldn't process {file.name} — file may be corrupted or unreadable")
+
+            st.session_state.all_candidates.to_csv(CSV_PATH, index=False)
+            if success_count > 0:
+                st.success(f"✅ Processed {success_count} resume(s) successfully")
 
 with col2:
     with st.container(border=True):
@@ -138,6 +163,19 @@ if not st.session_state.all_candidates.empty:
     display_df["skills"] = display_df["skills"].apply(lambda x: ", ".join(x) if x else "")
     display_df["status"] = "✅ Processed"
     display_df.columns = ["Candidate Name", "Email", "Phone", "Key Skills", "Status"]
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    table_html = "<table style='width:100%; border-collapse: collapse;'>"
+    table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
+    for col in display_df.columns:
+        table_html += f"<th style='padding:8px;'>{col}</th>"
+    table_html += "</tr>"
+    for _, row in display_df.iterrows():
+        table_html += "<tr style='border-bottom: 1px solid #eee;'>"
+        for val in row:
+            table_html += f"<td style='padding:8px;'>{val}</td>"
+        table_html += "</tr>"
+    table_html += "</table>"
+
+    st.markdown(table_html, unsafe_allow_html=True)
 else:
     st.info("No candidates processed yet. Upload a resume to get started.")
