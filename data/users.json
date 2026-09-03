@@ -1,4 +1,14 @@
 {
-  "priyanka": "54a849875c807c41f4725cc39db0ea0ec78c62811bbccd9332ddb30a51b32383",
-  "Priyanka": "44bcff24eb6751fdcc80626affe0ad38e91deadf89b4c1df821055688b96aa47"
+  "priyanka": {
+    "password": "54a849875c807c41f4725cc39db0ea0ec78c62811bbccd9332ddb30a51b32383",
+    "role": "Student"
+  },
+  "Priyanka": {
+    "password": "44bcff24eb6751fdcc80626affe0ad38e91deadf89b4c1df821055688b96aa47",
+    "role": "Student"
+  },
+  "ram": {
+    "password": "a631f4488a457da27b4a64dc8f2d85085b50ff568be99125cf6f8f45c759878e",
+    "role": "Recruiter"
+  }
 }
