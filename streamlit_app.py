@@ -7,7 +7,9 @@ from collections import Counter
 from app import process_resume
 from accuracy_check import run_accuracy_check
 from auth import signup_user, login_user
-from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates
+from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates, insert_job, get_all_jobs
+from jd_extractor import analyze_job_description
+from matching_engine import match_all_candidates
 
 st.set_page_config(page_title="Recruitment Copilot", layout="wide", page_icon="📄")
 
@@ -63,6 +65,8 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
     st.session_state.username = None
+if "role" not in st.session_state:
+    st.session_state.role = None
 
 def show_login_page():
     st.title("🔐 Recruitment Copilot")
@@ -77,26 +81,28 @@ def show_login_page():
             submitted = st.form_submit_button("Log In")
 
             if submitted:
-                success, message = login_user(username, password)
+                success, result = login_user(username, password)
                 if success:
                     st.session_state.logged_in = True
                     st.session_state.username = username
+                    st.session_state.role = result
                     st.rerun()
                 else:
-                    st.error(message)
+                    st.error(result)
 
     with tab2:
         with st.form("signup_form"):
             new_username = st.text_input("Choose a username")
             new_password = st.text_input("Choose a password", type="password")
             confirm_password = st.text_input("Confirm password", type="password")
+            role = st.radio("I am a:", ["Student", "Recruiter", "Admin"], horizontal=True)
             signup_submitted = st.form_submit_button("Sign Up")
 
             if signup_submitted:
                 if new_password != confirm_password:
                     st.error("Passwords do not match")
                 else:
-                    success, message = signup_user(new_username, new_password)
+                    success, message = signup_user(new_username, new_password, role)
                     if success:
                         st.success(message)
                     else:
@@ -109,7 +115,7 @@ if not st.session_state.logged_in:
 # ---- Sidebar ----
 with st.sidebar:
     st.markdown('<span class="logo-badge">RC</span> &nbsp; **Recruitment Copilot**', unsafe_allow_html=True)
-    st.caption(f"Logged in as **{st.session_state.username}**")
+    st.caption(f"Logged in as **{st.session_state.username}** ({st.session_state.role})")
     st.markdown("---")
     st.markdown("📊 Dashboard")
     st.markdown("**📄 Resume Upload**")
@@ -125,6 +131,7 @@ with st.sidebar:
     if st.button("🚪 Logout"):
         st.session_state.logged_in = False
         st.session_state.username = None
+        st.session_state.role = None
         st.rerun()
 
 # ---- Header ----
@@ -210,7 +217,6 @@ if total > 0:
     st.markdown("---")
     st.subheader("📈 Parsing Insights")
 
-    # --- Row 1: Accuracy Gauge + Skills bar ---
     gauge_col, skills_col = st.columns([1, 1.4])
 
     with gauge_col:
@@ -254,7 +260,6 @@ if total > 0:
         else:
             st.info("No skills extracted yet.")
 
-    # --- Row 2: Field extraction radar + Certification donut ---
     radar_col, donut_col = st.columns([1.4, 1])
 
     with radar_col:
@@ -295,7 +300,6 @@ if total > 0:
                                  showlegend=False, margin=dict(t=50, b=10, l=10, r=10))
         st.plotly_chart(fig_donut, use_container_width=True)
 
-    # --- Row 3: Resumes over time ---
     if "created_at" in all_candidates.columns:
         dates = pd.to_datetime(all_candidates["created_at"]).dt.date
         daily_counts = dates.value_counts().sort_index().reset_index()
@@ -313,6 +317,51 @@ if total > 0:
         fig_trend.update_layout(title="Cumulative Resumes Processed Over Time",
                                  height=280, margin=dict(t=50, b=10, l=10, r=10))
         st.plotly_chart(fig_trend, use_container_width=True)
+
+# ---- Job Matching & Skill Gap Analysis ----
+st.markdown("---")
+st.subheader("💼 Job Matching & Skill Gap Analysis")
+
+with st.container(border=True):
+    job_title_input = st.text_input("Job Title", placeholder="e.g. Software Development Intern")
+    jd_text = st.text_area(
+        "Paste job description",
+        height=150,
+        placeholder="We are looking for a candidate with 5+ years of experience in Python, Machine Learning, and TensorFlow..."
+    )
+
+    if st.button("🔍 Analyze & Match Candidates"):
+        if jd_text.strip() and job_title_input.strip():
+            job = analyze_job_description(jd_text)
+            job["title"] = job_title_input.strip()
+            insert_job(job, st.session_state.username)
+            st.session_state.last_job = job
+            st.success(f"Job \"{job['title']}\" analyzed — {len(job['required_skills'])} required skills detected")
+        else:
+            st.error("Please enter a job title and paste a job description")
+
+    if "last_job" in st.session_state and all_candidates is not None and not all_candidates.empty:
+        job = st.session_state.last_job
+        results = match_all_candidates(all_candidates, job)
+
+        st.markdown(f"**Matching results for: {job['title']}**")
+
+        for r in results:
+            score = r["hiring_score"]
+            color = "#22c55e" if score >= 85 else "#f59e0b" if score >= 60 else "#ef4444"
+            with st.container(border=True):
+                mcol1, mcol2 = st.columns([3, 1])
+                with mcol1:
+                    st.markdown(f"**{r['name']}** — {r['email']}")
+                    if r["matched_skills"]:
+                        badges = "".join([f'<span class="skill-badge">{s}</span>' for s in r["matched_skills"]])
+                        st.markdown(f"Matched: {badges}", unsafe_allow_html=True)
+                    if r["missing_skills"]:
+                        st.markdown(f"⚠️ Missing: {', '.join(r['missing_skills'])}")
+                        for rec in r["recommendations"]:
+                            st.caption(f"💡 {rec}")
+                with mcol2:
+                    st.markdown(f"<div style='text-align:center;'><span style='font-size:32px; font-weight:800; color:{color}'>{score}%</span><br><span style='font-size:12px; color:#6b7280;'>Match Score</span></div>", unsafe_allow_html=True)
 
 st.markdown("---")
 st.subheader("👥 Recently Processed Candidates")

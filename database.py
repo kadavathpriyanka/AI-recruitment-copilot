@@ -8,7 +8,7 @@ DB_PATH = "data/recruitment.db"
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-        cursor.execute("""
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS candidates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
@@ -36,7 +36,6 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-
 
 def insert_candidate(candidate, uploaded_by):
     conn = sqlite3.connect(DB_PATH)
@@ -96,7 +95,7 @@ def insert_job(job, created_by):
 
 def get_all_jobs():
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql_query("SELECT * FROM jobs ORDER BY id ASC", conn)
+    df = pd.read_sql_query("SELECT * FROM jobs ORDER BY id DESC", conn)
     conn.close()
 
     for col in ["required_skills", "required_education"]:

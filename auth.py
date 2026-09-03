@@ -10,7 +10,12 @@ def _hash_password(password):
 def load_users():
     if os.path.exists(USERS_FILE):
         with open(USERS_FILE, "r") as f:
-            return json.load(f)
+            users = json.load(f)
+            # Handle old format (username -> hash string) by upgrading to dict format
+            for username, value in users.items():
+                if isinstance(value, str):
+                    users[username] = {"password": value, "role": "Student"}
+            return users
     return {}
 
 def save_users(users):
@@ -18,7 +23,7 @@ def save_users(users):
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=2)
 
-def signup_user(username, password):
+def signup_user(username, password, role):
     username = username.strip()
     if not username or not password:
         return False, "Username and password cannot be empty"
@@ -27,7 +32,7 @@ def signup_user(username, password):
     if username in users:
         return False, "Username already exists"
 
-    users[username] = _hash_password(password)
+    users[username] = {"password": _hash_password(password), "role": role}
     save_users(users)
     return True, "Account created successfully. Please log in."
 
@@ -37,7 +42,7 @@ def login_user(username, password):
 
     if username not in users:
         return False, "Username not found"
-    if users[username] != _hash_password(password):
+    if users[username]["password"] != _hash_password(password):
         return False, "Incorrect password"
 
-    return True, "Login successful"
+    return True, users[username]["role"]
