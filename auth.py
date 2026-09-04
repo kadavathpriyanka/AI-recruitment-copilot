@@ -46,3 +46,7 @@ def login_user(username, password):
         return False, "Incorrect password"
 
     return True, users[username]["role"]
+
+def get_all_users():
+    users = load_users()
+    return [{"username": u, "role": v["role"]} for u, v in users.items()]

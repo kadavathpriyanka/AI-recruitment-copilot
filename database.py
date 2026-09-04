@@ -103,3 +103,10 @@ def get_all_jobs():
             df[col] = df[col].apply(lambda x: json.loads(x) if x else [])
 
     return df
+
+def delete_job(job_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+    conn.commit()
+    conn.close()

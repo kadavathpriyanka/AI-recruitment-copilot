@@ -6,10 +6,12 @@ import plotly.express as px
 from collections import Counter
 from app import process_resume
 from accuracy_check import run_accuracy_check
-from auth import signup_user, login_user
-from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates, insert_job, get_all_jobs
+from auth import signup_user, login_user, get_all_users
+from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates, insert_job, get_all_jobs, delete_job
 from jd_extractor import analyze_job_description
 from matching_engine import match_all_candidates, calculate_match, skill_gap_analysis
+from parser.pdf_reader import extract_text_from_pdf
+from parser.docx_reader import extract_text_from_docx
 
 st.set_page_config(page_title="Recruitment Copilot", layout="wide", page_icon="📄")
 
@@ -59,10 +61,43 @@ st.markdown("""
     padding: 24px;
     border: 1px solid #ede9fe;
 }
+.avatar-circle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #6366f1, #ec4899);
+    color: white;
+    font-weight: 700;
+    font-size: 14px;
+    margin-right: 10px;
+}
 </style>
 """, unsafe_allow_html=True)
 
 init_db()
+
+def get_initials(name):
+    if not name:
+        return "?"
+    parts = name.strip().split()
+    if len(parts) == 1:
+        return parts[0][0].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
+
+def extract_jd_text_from_file(uploaded_file):
+    os.makedirs("data/jd_uploads", exist_ok=True)
+    save_path = os.path.join("data/jd_uploads", uploaded_file.name)
+    with open(save_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+
+    if uploaded_file.name.lower().endswith(".pdf"):
+        return extract_text_from_pdf(save_path)
+    elif uploaded_file.name.lower().endswith(".docx"):
+        return extract_text_from_docx(save_path)
+    return ""
 
 # ---- Auth state ----
 if "logged_in" not in st.session_state:
@@ -125,6 +160,10 @@ username = st.session_state.username
 NAV_ITEMS = ["Dashboard", "Resume Upload", "Candidates", "Job Postings", "Analytics"]
 NAV_ICONS = {"Dashboard": "📊", "Resume Upload": "📄", "Candidates": "👥", "Job Postings": "💼", "Analytics": "📈"}
 
+if role == "Admin":
+    NAV_ITEMS = NAV_ITEMS + ["Manage Users"]
+    NAV_ICONS["Manage Users"] = "🛡️"
+
 with st.sidebar:
     st.markdown('<span class="logo-badge">RC</span> &nbsp; **Recruitment Copilot**', unsafe_allow_html=True)
     st.caption(f"Logged in as **{username}** ({role})")
@@ -161,6 +200,14 @@ FIELDS = ["name", "email", "phone", "education", "skills", "experience", "certif
 def field_completeness(row):
     found = sum(1 for f in FIELDS if row[f] and (not isinstance(row[f], list) or len(row[f]) > 0))
     return found, len(FIELDS)
+
+def render_full_profile(cand):
+    st.markdown(f"**🎓 Education:** {', '.join(cand['education']) if cand['education'] else '—'}")
+    st.markdown(f"**💼 Experience:** {', '.join(cand['experience']) if cand['experience'] else '—'}")
+    st.markdown(f"**📜 Certifications:** {', '.join(cand['certifications']) if cand['certifications'] else '—'}")
+    if cand["skills"]:
+        badges = "".join([f'<span class="skill-badge">{s}</span>' for s in cand["skills"]])
+        st.markdown(f"**🛠️ Skills:** {badges}", unsafe_allow_html=True)
 
 # =========================================================
 # PAGE: Dashboard
@@ -233,7 +280,7 @@ if st.session_state.page == "Dashboard":
                             st.markdown(f"Requires: {badges}", unsafe_allow_html=True)
 
     else:  # Recruiter / Admin
-        st.title("📊 Recruiter Dashboard")
+        st.title("📊 Recruiter Dashboard" if role == "Recruiter" else "📊 Admin Dashboard")
         st.caption("Recruitment pipeline overview")
         st.markdown("---")
 
@@ -389,17 +436,7 @@ elif st.session_state.page == "Candidates":
             st.markdown(f"## {latest['name']}")
             st.markdown(f"📧 {latest['email']}  &nbsp;|&nbsp;  📱 {latest['phone']}")
             st.markdown("---")
-            edu = ", ".join(latest["education"]) if latest["education"] else "—"
-            st.markdown(f"**🎓 Education**")
-            st.markdown(edu)
-            st.markdown(f"**💼 Experience**")
-            st.markdown(", ".join(latest["experience"]) if latest["experience"] else "—")
-            st.markdown(f"**📜 Certifications**")
-            st.markdown(", ".join(latest["certifications"]) if latest["certifications"] else "—")
-            st.markdown(f"**🛠️ Skills**")
-            if latest["skills"]:
-                badges = "".join([f'<span class="skill-badge">{s}</span>' for s in latest["skills"]])
-                st.markdown(badges, unsafe_allow_html=True)
+            render_full_profile(latest)
             st.markdown('</div>', unsafe_allow_html=True)
 
     else:  # Recruiter / Admin
@@ -410,7 +447,7 @@ elif st.session_state.page == "Candidates":
         if all_candidates.empty:
             st.info("No candidates processed yet.")
         else:
-            search_col, sort_col = st.columns([2, 1])
+            search_col, sort_col, export_col = st.columns([2, 1, 1])
             with search_col:
                 search_term = st.text_input("🔍 Search by name or skill", placeholder="e.g. Python or Ananya")
             with sort_col:
@@ -429,25 +466,24 @@ elif st.session_state.page == "Candidates":
             elif sort_by == "Most Skills":
                 filtered = filtered.iloc[filtered["skills"].apply(len).sort_values(ascending=False).index]
 
-            st.caption(f"Showing {len(filtered)} of {len(all_candidates)} candidates")
+            with export_col:
+                export_df = filtered.copy()
+                for col in ["education", "skills", "experience", "certifications"]:
+                    export_df[col] = export_df[col].apply(lambda x: ", ".join(x) if x else "")
+                csv_bytes = export_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇️ Export CSV", csv_bytes, "candidates.csv", "text/csv", use_container_width=True)
 
-            display_df = filtered[["name", "email", "phone", "skills"]].copy()
-            display_df["skills"] = display_df["skills"].apply(lambda x: ", ".join(x) if x else "")
-            display_df["status"] = "✅ Processed"
-            display_df.columns = ["Candidate Name", "Email", "Phone", "Key Skills", "Status"]
+            st.caption(f"Showing {len(filtered)} of {len(all_candidates)} candidates — click a candidate to expand their full profile")
 
-            table_html = "<table style='width:100%; border-collapse: collapse;'>"
-            table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
-            for col in display_df.columns:
-                table_html += f"<th style='padding:8px;'>{col}</th>"
-            table_html += "</tr>"
-            for _, row in display_df.iterrows():
-                table_html += "<tr style='border-bottom: 1px solid #eee;'>"
-                for val in row:
-                    table_html += f"<td style='padding:8px;'>{val}</td>"
-                table_html += "</tr>"
-            table_html += "</table>"
-            st.markdown(table_html, unsafe_allow_html=True)
+            for _, cand in filtered.iterrows():
+                initials = get_initials(cand["name"])
+                header = f"{cand['name']}  —  {cand['email']}"
+                with st.expander(header):
+                    st.markdown(
+                        f'<span class="avatar-circle">{initials}</span> **{cand["name"]}**',
+                        unsafe_allow_html=True
+                    )
+                    render_full_profile(cand)
 
 # =========================================================
 # PAGE: Job Postings
@@ -456,19 +492,27 @@ elif st.session_state.page == "Job Postings":
     st.title("💼 Job Postings")
 
     if role == "Student":
-        st.caption("Paste a job description to see how well your latest resume matches")
+        st.caption("Paste a job description, or upload a JD file, to see how well your latest resume matches")
         st.markdown("---")
 
         with st.container(border=True):
             job_title_input = st.text_input("Job Title", placeholder="e.g. Software Development Intern")
             jd_text = st.text_area("Paste job description", height=150)
+            jd_file = st.file_uploader("Or upload a JD file (PDF/DOCX)", type=["pdf", "docx"], key="jd_file_student")
+
+            final_jd_text = jd_text
+            if jd_file is not None:
+                extracted = extract_jd_text_from_file(jd_file)
+                if extracted.strip():
+                    final_jd_text = extracted
+                    st.caption(f"📄 Using text extracted from {jd_file.name}")
 
             if st.button("🔍 Check My Match"):
-                if jd_text.strip() and job_title_input.strip():
+                if final_jd_text.strip() and job_title_input.strip():
                     if my_candidates.empty:
                         st.error("Upload your resume first from the Resume Upload page.")
                     else:
-                        job = analyze_job_description(jd_text)
+                        job = analyze_job_description(final_jd_text)
                         job["title"] = job_title_input.strip()
                         my_latest = my_candidates.iloc[-1]
                         score, matched = calculate_match(my_latest.to_dict(), job)
@@ -484,26 +528,34 @@ elif st.session_state.page == "Job Postings":
                             for rec in gap["recommendations"]:
                                 st.caption(f"💡 {rec}")
                 else:
-                    st.error("Please enter a job title and paste a job description")
+                    st.error("Please enter a job title and paste or upload a job description")
 
     else:  # Recruiter or Admin
-        st.caption("Post a job requirement and rank all candidates against it")
+        st.caption("Post a job requirement (paste text or upload a file) and rank all candidates against it")
         st.markdown("---")
 
         with st.container(border=True):
             st.subheader("➕ Post a New Job")
             job_title_input = st.text_input("Job Title", placeholder="e.g. Software Development Intern")
             jd_text = st.text_area("Paste job description", height=150)
+            jd_file = st.file_uploader("Or upload a JD file (PDF/DOCX)", type=["pdf", "docx"], key="jd_file_recruiter")
+
+            final_jd_text = jd_text
+            if jd_file is not None:
+                extracted = extract_jd_text_from_file(jd_file)
+                if extracted.strip():
+                    final_jd_text = extracted
+                    st.caption(f"📄 Using text extracted from {jd_file.name}")
 
             if st.button("🔍 Analyze & Save Job"):
-                if jd_text.strip() and job_title_input.strip():
-                    job = analyze_job_description(jd_text)
+                if final_jd_text.strip() and job_title_input.strip():
+                    job = analyze_job_description(final_jd_text)
                     job["title"] = job_title_input.strip()
                     insert_job(job, username)
                     st.success(f"Job \"{job['title']}\" saved — {len(job['required_skills'])} required skills detected")
                     st.rerun()
                 else:
-                    st.error("Please enter a job title and paste a job description")
+                    st.error("Please enter a job title and paste or upload a job description")
 
         st.markdown("---")
         st.subheader("📋 Saved Job Postings")
@@ -513,13 +565,29 @@ elif st.session_state.page == "Job Postings":
         else:
             job_titles = all_jobs["title"].tolist()
             selected_title = st.selectbox("Select a job to view matched candidates", job_titles)
-            selected_job = all_jobs[all_jobs["title"] == selected_title].iloc[0].to_dict()
+            selected_job_row = all_jobs[all_jobs["title"] == selected_title].iloc[0]
+            selected_job = selected_job_row.to_dict()
+
+            can_delete = (role == "Admin") or (selected_job.get("created_by") == username)
+            if can_delete:
+                if st.button("🗑️ Delete this job posting"):
+                    delete_job(int(selected_job["id"]))
+                    st.success("Job posting deleted")
+                    st.rerun()
 
             if all_candidates.empty:
                 st.info("No candidates in the system yet to match against.")
             else:
                 results = match_all_candidates(all_candidates, selected_job)
                 st.markdown(f"**Ranked candidates for: {selected_title}**")
+
+                results_df = pd.DataFrame(results)
+                export_df = results_df.copy()
+                export_df["matched_skills"] = export_df["matched_skills"].apply(lambda x: ", ".join(x))
+                export_df["missing_skills"] = export_df["missing_skills"].apply(lambda x: ", ".join(x))
+                export_df["recommendations"] = export_df["recommendations"].apply(lambda x: "; ".join(x))
+                csv_bytes = export_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇️ Export Match Results CSV", csv_bytes, f"matches_{selected_title}.csv", "text/csv")
 
                 for r in results:
                     score = r["hiring_score"]
@@ -647,3 +715,39 @@ elif st.session_state.page == "Analytics":
             fig_trend.update_layout(title="Cumulative Resumes Processed Over Time",
                                      height=280, margin=dict(t=50, b=10, l=10, r=10))
             st.plotly_chart(fig_trend, use_container_width=True)
+
+# =========================================================
+# PAGE: Manage Users (Admin only)
+# =========================================================
+elif st.session_state.page == "Manage Users":
+    st.title("🛡️ Manage Users")
+    st.caption("All registered accounts on the platform")
+    st.markdown("---")
+
+    users = get_all_users()
+    if not users:
+        st.info("No users found.")
+    else:
+        users_df = pd.DataFrame(users)
+        users_df.columns = ["Username", "Role"]
+
+        table_html = "<table style='width:100%; border-collapse: collapse;'>"
+        table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
+        for col in users_df.columns:
+            table_html += f"<th style='padding:8px;'>{col}</th>"
+        table_html += "</tr>"
+        for _, row in users_df.iterrows():
+            table_html += "<tr style='border-bottom: 1px solid #eee;'>"
+            for val in row:
+                table_html += f"<td style='padding:8px;'>{val}</td>"
+            table_html += "</tr>"
+        table_html += "</table>"
+        st.markdown(table_html, unsafe_allow_html=True)
+
+        role_counts = users_df["Role"].value_counts()
+        st.markdown("---")
+        st.subheader("User Breakdown")
+        fig_users = px.pie(values=role_counts.values, names=role_counts.index, hole=0.5,
+                            color_discrete_sequence=["#6366f1", "#8b5cf6", "#ec4899"])
+        fig_users.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10))
+        st.plotly_chart(fig_users, use_container_width=True)
