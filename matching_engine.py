@@ -70,4 +70,6 @@ def match_all_candidates(candidates_df, job):
             "recommendations": gap_report["recommendations"],
         })
     results.sort(key=lambda x: x["hiring_score"], reverse=True)
+    for i, r in enumerate(results, start=1):
+        r["rank"] = i
     return results

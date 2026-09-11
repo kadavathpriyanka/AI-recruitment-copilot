@@ -10,6 +10,7 @@ from auth import signup_user, login_user, get_all_users
 from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates, insert_job, get_all_jobs, delete_job
 from jd_extractor import analyze_job_description
 from matching_engine import match_all_candidates, calculate_match, skill_gap_analysis
+from matching_accuracy_check import get_accuracy_results
 from parser.pdf_reader import extract_text_from_pdf
 from parser.docx_reader import extract_text_from_docx
 
@@ -86,6 +87,9 @@ def get_initials(name):
     if len(parts) == 1:
         return parts[0][0].upper()
     return (parts[0][0] + parts[-1][0]).upper()
+
+def to_csv_bytes(df):
+    return df.to_csv(index=False).encode("utf-8-sig")
 
 def extract_jd_text_from_file(uploaded_file):
     os.makedirs("data/jd_uploads", exist_ok=True)
@@ -470,8 +474,7 @@ elif st.session_state.page == "Candidates":
                 export_df = filtered.copy()
                 for col in ["education", "skills", "experience", "certifications"]:
                     export_df[col] = export_df[col].apply(lambda x: ", ".join(x) if x else "")
-                csv_bytes = export_df.to_csv(index=False).encode("utf-8")
-                st.download_button("⬇️ Export CSV", csv_bytes, "candidates.csv", "text/csv", use_container_width=True)
+                st.download_button("⬇️ Export CSV", to_csv_bytes(export_df), "candidates.csv", "text/csv", use_container_width=True)
 
             st.caption(f"Showing {len(filtered)} of {len(all_candidates)} candidates — click a candidate to expand their full profile")
 
@@ -581,7 +584,6 @@ elif st.session_state.page == "Job Postings":
                 results = match_all_candidates(all_candidates, selected_job)
                 results_df = pd.DataFrame(results)
 
-                # --- Matching Accuracy Gauge (≥85% target) ---
                 strong_match_pct = round((sum(1 for r in results if r["hiring_score"] >= 85) / len(results)) * 100, 1) if results else 0
 
                 fig_match_gauge = go.Figure(go.Indicator(
@@ -603,13 +605,24 @@ elif st.session_state.page == "Job Postings":
                 fig_match_gauge.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20))
                 st.plotly_chart(fig_match_gauge, use_container_width=True)
 
-                # --- Missing Skills Report ---
                 st.markdown("---")
                 st.subheader("📉 Missing Skills Report")
 
                 all_missing = []
                 for r in results:
                     all_missing.extend(r["missing_skills"])
+
+                report_rows = [{"Candidate": r["name"], "Email": r["email"],
+                                 "Missing Skills": ", ".join(r["missing_skills"]) or "None",
+                                 "Recommendations": "; ".join(r["recommendations"]) or "—"} for r in results]
+                report_df = pd.DataFrame(report_rows)
+
+                st.download_button(
+                    "⬇️ Download Missing Skills Report",
+                    to_csv_bytes(report_df),
+                    f"missing_skills_report_{selected_title}.csv",
+                    "text/csv"
+                )
 
                 if all_missing:
                     missing_counts = Counter(all_missing).most_common()
@@ -626,10 +639,6 @@ elif st.session_state.page == "Job Postings":
                                                margin=dict(t=50, b=10, l=10, r=30))
                     st.plotly_chart(fig_missing, use_container_width=True)
 
-                    report_rows = [{"Candidate": r["name"], "Missing Skills": ", ".join(r["missing_skills"]) or "None",
-                                     "Recommendations": "; ".join(r["recommendations"]) or "—"} for r in results]
-                    report_df = pd.DataFrame(report_rows)
-
                     table_html = "<table style='width:100%; border-collapse: collapse;'>"
                     table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
                     for col in report_df.columns:
@@ -645,7 +654,6 @@ elif st.session_state.page == "Job Postings":
                 else:
                     st.success("No skill gaps — every candidate matches all required skills.")
 
-                # --- Ranked Candidates ---
                 st.markdown("---")
                 st.markdown(f"**Ranked candidates for: {selected_title}**")
 
@@ -653,16 +661,16 @@ elif st.session_state.page == "Job Postings":
                 export_df["matched_skills"] = export_df["matched_skills"].apply(lambda x: ", ".join(x))
                 export_df["missing_skills"] = export_df["missing_skills"].apply(lambda x: ", ".join(x))
                 export_df["recommendations"] = export_df["recommendations"].apply(lambda x: "; ".join(x))
-                csv_bytes = export_df.to_csv(index=False).encode("utf-8")
-                st.download_button("⬇️ Export Match Results CSV", csv_bytes, f"matches_{selected_title}.csv", "text/csv")
+                st.download_button("⬇️ Export Full Match Results CSV", to_csv_bytes(export_df), f"matches_{selected_title}.csv", "text/csv")
 
                 for r in results:
                     score = r["hiring_score"]
                     color = "#22c55e" if score >= 85 else "#f59e0b" if score >= 60 else "#ef4444"
+                    rank_badge = {1: "🥇", 2: "🥈", 3: "🥉"}.get(r["rank"], f"#{r['rank']}")
                     with st.container(border=True):
                         mcol1, mcol2 = st.columns([3, 1])
                         with mcol1:
-                            st.markdown(f"**{r['name']}** — {r['email']}")
+                            st.markdown(f"**{rank_badge}&nbsp;&nbsp;{r['name']}** — {r['email']}", unsafe_allow_html=True)
                             if r["matched_skills"]:
                                 badges = "".join([f'<span class="skill-badge">{s}</span>' for s in r["matched_skills"]])
                                 st.markdown(f"Matched: {badges}", unsafe_allow_html=True)
@@ -725,6 +733,49 @@ elif st.session_state.page == "Analytics":
                 st.plotly_chart(fig_skills, use_container_width=True)
             else:
                 st.info("No skills extracted yet.")
+
+        st.markdown("---")
+        st.subheader("🎯 Matching Algorithm Accuracy")
+        st.caption("Validated against hand-crafted test cases with known expected outcomes")
+
+        match_accuracy, match_test_rows = get_accuracy_results()
+
+        match_gauge_col, match_table_col = st.columns([1, 1.4])
+
+        with match_gauge_col:
+            fig_match_acc = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=match_accuracy,
+                number={"suffix": "%", "font": {"size": 40, "color": "#6366f1"}},
+                title={"text": "Matching Accuracy vs 85% Target", "font": {"size": 14}},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar": {"color": "#6366f1"},
+                    "steps": [
+                        {"range": [0, 60], "color": "#fee2e2"},
+                        {"range": [60, 85], "color": "#fef9c3"},
+                        {"range": [85, 100], "color": "#dcfce7"},
+                    ],
+                    "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 85},
+                },
+            ))
+            fig_match_acc.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20))
+            st.plotly_chart(fig_match_acc, use_container_width=True)
+
+        with match_table_col:
+            match_df = pd.DataFrame(match_test_rows)
+            table_html = "<table style='width:100%; border-collapse: collapse; font-size:13px;'>"
+            table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
+            for col in match_df.columns:
+                table_html += f"<th style='padding:6px;'>{col}</th>"
+            table_html += "</tr>"
+            for _, row in match_df.iterrows():
+                table_html += "<tr style='border-bottom: 1px solid #eee;'>"
+                for val in row:
+                    table_html += f"<td style='padding:6px;'>{val}</td>"
+                table_html += "</tr>"
+            table_html += "</table>"
+            st.markdown(table_html, unsafe_allow_html=True)
 
         radar_col, donut_col = st.columns([1.4, 1])
 
