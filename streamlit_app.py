@@ -579,9 +579,76 @@ elif st.session_state.page == "Job Postings":
                 st.info("No candidates in the system yet to match against.")
             else:
                 results = match_all_candidates(all_candidates, selected_job)
+                results_df = pd.DataFrame(results)
+
+                # --- Matching Accuracy Gauge (≥85% target) ---
+                strong_match_pct = round((sum(1 for r in results if r["hiring_score"] >= 85) / len(results)) * 100, 1) if results else 0
+
+                fig_match_gauge = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=strong_match_pct,
+                    number={"suffix": "%", "font": {"size": 36, "color": "#6366f1"}},
+                    title={"text": f"% of Candidates ≥85% Match — {selected_title}", "font": {"size": 14}},
+                    gauge={
+                        "axis": {"range": [0, 100]},
+                        "bar": {"color": "#6366f1"},
+                        "steps": [
+                            {"range": [0, 50], "color": "#fee2e2"},
+                            {"range": [50, 85], "color": "#fef9c3"},
+                            {"range": [85, 100], "color": "#dcfce7"},
+                        ],
+                        "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 85},
+                    },
+                ))
+                fig_match_gauge.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20))
+                st.plotly_chart(fig_match_gauge, use_container_width=True)
+
+                # --- Missing Skills Report ---
+                st.markdown("---")
+                st.subheader("📉 Missing Skills Report")
+
+                all_missing = []
+                for r in results:
+                    all_missing.extend(r["missing_skills"])
+
+                if all_missing:
+                    missing_counts = Counter(all_missing).most_common()
+                    missing_df = pd.DataFrame(missing_counts, columns=["Skill", "Candidates Missing It"])
+
+                    fig_missing = px.bar(
+                        missing_df.sort_values("Candidates Missing It"),
+                        x="Candidates Missing It", y="Skill", orientation="h",
+                        color="Candidates Missing It", color_continuous_scale=["#fed7aa", "#f59e0b", "#ea580c"],
+                        text="Candidates Missing It", title=f"Most Common Skill Gaps — {selected_title}"
+                    )
+                    fig_missing.update_traces(textposition="outside")
+                    fig_missing.update_layout(height=280, showlegend=False, coloraxis_showscale=False,
+                                               margin=dict(t=50, b=10, l=10, r=30))
+                    st.plotly_chart(fig_missing, use_container_width=True)
+
+                    report_rows = [{"Candidate": r["name"], "Missing Skills": ", ".join(r["missing_skills"]) or "None",
+                                     "Recommendations": "; ".join(r["recommendations"]) or "—"} for r in results]
+                    report_df = pd.DataFrame(report_rows)
+
+                    table_html = "<table style='width:100%; border-collapse: collapse;'>"
+                    table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
+                    for col in report_df.columns:
+                        table_html += f"<th style='padding:8px;'>{col}</th>"
+                    table_html += "</tr>"
+                    for _, row in report_df.iterrows():
+                        table_html += "<tr style='border-bottom: 1px solid #eee;'>"
+                        for val in row:
+                            table_html += f"<td style='padding:8px;'>{val}</td>"
+                        table_html += "</tr>"
+                    table_html += "</table>"
+                    st.markdown(table_html, unsafe_allow_html=True)
+                else:
+                    st.success("No skill gaps — every candidate matches all required skills.")
+
+                # --- Ranked Candidates ---
+                st.markdown("---")
                 st.markdown(f"**Ranked candidates for: {selected_title}**")
 
-                results_df = pd.DataFrame(results)
                 export_df = results_df.copy()
                 export_df["matched_skills"] = export_df["matched_skills"].apply(lambda x: ", ".join(x))
                 export_df["missing_skills"] = export_df["missing_skills"].apply(lambda x: ", ".join(x))
