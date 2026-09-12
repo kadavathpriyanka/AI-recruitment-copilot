@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+from datetime import datetime
 import plotly.graph_objects as go
 import plotly.express as px
 from collections import Counter
@@ -18,10 +19,16 @@ st.set_page_config(page_title="Recruitment Copilot", layout="wide", page_icon="�
 
 st.markdown("""
 <style>
+.stApp {
+    background: linear-gradient(180deg, #faf9ff 0%, #f7f5ff 100%);
+}
+.block-container {
+    padding-top: 2.2rem;
+}
 .skill-badge {
     display: inline-block;
-    background-color: #e8f0fe;
-    color: #1a56db;
+    background-color: #ede9fe;
+    color: #5b21b6;
     padding: 4px 10px;
     border-radius: 12px;
     margin: 3px 3px 3px 0;
@@ -29,27 +36,36 @@ st.markdown("""
     font-weight: 500;
 }
 .metric-box {
-    background: linear-gradient(135deg, #f5f3ff, #fdf2f8);
-    border-radius: 12px;
-    padding: 16px 18px;
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 18px 20px;
     text-align: center;
-    border: 1px solid #ede9fe;
+    border: 1px solid #ece8ff;
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.06);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.metric-box:hover {
+    box-shadow: 0 6px 18px rgba(124, 58, 237, 0.14);
+    transform: translateY(-2px);
 }
 .metric-label {
     font-size: 12px;
     color: #6b7280;
     margin-bottom: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 }
 .metric-value {
     font-size: 28px;
     font-weight: 800;
-    background: linear-gradient(135deg, #6366f1, #ec4899);
+    background: linear-gradient(135deg, #7c3aed, #ec4899);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 .logo-badge {
     display: inline-block;
-    background: linear-gradient(135deg, #6366f1, #ec4899);
+    background: linear-gradient(135deg, #7c3aed, #ec4899);
     color: white;
     font-weight: 700;
     padding: 8px 12px;
@@ -57,10 +73,15 @@ st.markdown("""
     font-size: 14px;
 }
 .profile-card {
-    background: linear-gradient(135deg, #f5f3ff, #fdf2f8);
-    border-radius: 16px;
-    padding: 24px;
-    border: 1px solid #ede9fe;
+    background: #ffffff;
+    border-radius: 18px;
+    padding: 26px;
+    border: 1px solid #ece8ff;
+    box-shadow: 0 4px 14px rgba(124, 58, 237, 0.08);
+    transition: box-shadow 0.2s ease;
+}
+.profile-card:hover {
+    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.14);
 }
 .avatar-circle {
     display: inline-flex;
@@ -69,11 +90,134 @@ st.markdown("""
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #6366f1, #ec4899);
+    background: linear-gradient(135deg, #7c3aed, #ec4899);
     color: white;
     font-weight: 700;
     font-size: 14px;
     margin-right: 10px;
+}
+.avatar-circle-lg {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #7c3aed, #ec4899);
+    color: white;
+    font-weight: 700;
+    font-size: 19px;
+    margin: 0 auto 10px auto;
+}
+.page-header {
+    background: linear-gradient(120deg, #ffffff 0%, #f5f2ff 100%);
+    border: 1px solid #ece8ff;
+    border-radius: 18px;
+    padding: 22px 28px;
+    margin-bottom: 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: 0 3px 12px rgba(124, 58, 237, 0.07);
+}
+.page-header-icon {
+    font-size: 30px;
+    margin-right: 14px;
+}
+.page-header-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: #1f2937;
+    margin: 0;
+}
+.page-header-subtitle {
+    font-size: 13px;
+    color: #6b7280;
+    margin-top: 2px;
+}
+.role-pill {
+    background: linear-gradient(135deg, #7c3aed, #ec4899);
+    color: white;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+.leaderboard-rank {
+    font-size: 20px;
+    margin-right: 8px;
+}
+
+/* Global: every bordered container gets the premium card look */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 18px !important;
+    border: 1px solid #ece8ff !important;
+    box-shadow: 0 4px 16px rgba(124, 58, 237, 0.08) !important;
+}
+
+/* Login page */
+.login-hero {
+    background: linear-gradient(150deg, #7c3aed 0%, #a855f7 55%, #ec4899 100%);
+    border-radius: 24px;
+    padding: 46px 40px;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 100%;
+}
+.login-hero-logo {
+    background: rgba(255,255,255,0.18);
+    width: 54px; height: 54px;
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 19px;
+    margin-bottom: 26px;
+}
+.login-hero h1 { font-size: 30px; font-weight: 800; line-height: 1.25; margin-bottom: 12px; }
+.login-hero p.tagline { font-size: 14.5px; opacity: 0.9; margin-bottom: 30px; line-height: 1.5; }
+.login-feature { display: flex; align-items: flex-start; margin-bottom: 18px; }
+.login-feature-icon {
+    background: rgba(255,255,255,0.18);
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; margin-right: 13px; flex-shrink: 0;
+}
+.login-feature-title { font-weight: 700; font-size: 13.5px; margin-bottom: 2px; }
+.login-feature-desc { font-size: 12px; opacity: 0.85; line-height: 1.4; }
+.login-stat-row { display: flex; gap: 26px; margin-top: 30px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.25); }
+.login-stat-num { font-size: 19px; font-weight: 800; }
+.login-stat-label { font-size: 11px; opacity: 0.8; }
+
+/* Inputs */
+div[data-testid="stTextInput"] input {
+    border-radius: 10px !important;
+    border: 1.5px solid #e6e1ff !important;
+    padding: 11px 14px !important;
+    background: #faf9ff !important;
+    font-size: 14px !important;
+}
+div[data-testid="stTextInput"] input:focus {
+    border-color: #7c3aed !important;
+    box-shadow: 0 0 0 3px rgba(124,58,237,0.13) !important;
+}
+
+/* Primary buttons */
+button[kind="primary"] {
+    background: linear-gradient(135deg, #7c3aed, #ec4899) !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 700 !important;
+    padding: 0.6rem 1rem !important;
+    box-shadow: 0 4px 14px rgba(124, 58, 237, 0.25) !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+button[kind="primary"]:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35) !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -90,6 +234,30 @@ def get_initials(name):
 
 def to_csv_bytes(df):
     return df.to_csv(index=False).encode("utf-8-sig")
+
+def get_greeting():
+    hour = datetime.now().hour
+    if hour < 12:
+        return "Good morning"
+    elif hour < 17:
+        return "Good afternoon"
+    else:
+        return "Good evening"
+
+def page_header(icon, title, subtitle, role_label=None):
+    role_html = f'<span class="role-pill">{role_label}</span>' if role_label else ""
+    st.markdown(f"""
+    <div class="page-header">
+        <div style="display:flex; align-items:center;">
+            <span class="page-header-icon">{icon}</span>
+            <div>
+                <p class="page-header-title">{title}</p>
+                <p class="page-header-subtitle">{subtitle}</p>
+            </div>
+        </div>
+        {role_html}
+    </div>
+    """, unsafe_allow_html=True)
 
 def extract_jd_text_from_file(uploaded_file):
     os.makedirs("data/jd_uploads", exist_ok=True)
@@ -114,44 +282,84 @@ if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
 
 def show_login_page():
-    st.title("🔐 Recruitment Copilot")
-    st.caption("Please log in or create an account to continue")
+    hero_col, form_col = st.columns([1, 1], gap="large")
 
-    tab1, tab2 = st.tabs(["Login", "Sign Up"])
+    with hero_col:
+        st.markdown("""
+        <div class="login-hero">
+            <div class="login-hero-logo">RC</div>
+            <h1>Find your perfect hire, faster.</h1>
+            <p class="tagline">AI-powered resume parsing, candidate-job matching, and skill-gap insights — all in one platform.</p>
+            <div class="login-feature">
+                <div class="login-feature-icon">📄</div>
+                <div>
+                    <div class="login-feature-title">Automated Resume Parsing</div>
+                    <div class="login-feature-desc">Upload PDF or DOCX resumes and get structured candidate profiles instantly.</div>
+                </div>
+            </div>
+            <div class="login-feature">
+                <div class="login-feature-icon">🎯</div>
+                <div>
+                    <div class="login-feature-title">Smart Candidate Matching</div>
+                    <div class="login-feature-desc">Rank candidates against job requirements with a transparent hiring score.</div>
+                </div>
+            </div>
+            <div class="login-feature">
+                <div class="login-feature-icon">📊</div>
+                <div>
+                    <div class="login-feature-title">Skill-Gap Analytics</div>
+                    <div class="login-feature-desc">See exactly what's missing and get training recommendations, automatically.</div>
+                </div>
+            </div>
+            <div class="login-stat-row">
+                <div><div class="login-stat-num">100%</div><div class="login-stat-label">Extraction Accuracy</div></div>
+                <div><div class="login-stat-num">≥85%</div><div class="login-stat-label">Match Accuracy</div></div>
+                <div><div class="login-stat-num">3</div><div class="login-stat-label">User Roles</div></div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    with tab1:
-        with st.form("login_form"):
-            username = st.text_input("Username")
-            password = st.text_input("Password", type="password")
-            submitted = st.form_submit_button("Log In")
+    with form_col:
+        with st.container(border=True):
+            tab1, tab2 = st.tabs(["Login", "Sign Up"])
 
-            if submitted:
-                success, result = login_user(username, password)
-                if success:
-                    st.session_state.logged_in = True
-                    st.session_state.username = username
-                    st.session_state.role = result
-                    st.rerun()
-                else:
-                    st.error(result)
+            with tab1:
+                st.markdown("### Welcome back")
+                st.caption("Log in to continue to your dashboard")
+                with st.form("login_form"):
+                    username = st.text_input("👤 Username")
+                    password = st.text_input("🔒 Password", type="password")
+                    submitted = st.form_submit_button("Log In", use_container_width=True, type="primary")
 
-    with tab2:
-        with st.form("signup_form"):
-            new_username = st.text_input("Choose a username")
-            new_password = st.text_input("Choose a password", type="password")
-            confirm_password = st.text_input("Confirm password", type="password")
-            role = st.radio("I am a:", ["Student", "Recruiter", "Admin"], horizontal=True)
-            signup_submitted = st.form_submit_button("Sign Up")
+                    if submitted:
+                        success, result = login_user(username, password)
+                        if success:
+                            st.session_state.logged_in = True
+                            st.session_state.username = username
+                            st.session_state.role = result
+                            st.rerun()
+                        else:
+                            st.error(result)
 
-            if signup_submitted:
-                if new_password != confirm_password:
-                    st.error("Passwords do not match")
-                else:
-                    success, message = signup_user(new_username, new_password, role)
-                    if success:
-                        st.success(message)
-                    else:
-                        st.error(message)
+            with tab2:
+                st.markdown("### Create an account")
+                st.caption("Join as a student, recruiter, or admin")
+                with st.form("signup_form"):
+                    new_username = st.text_input("👤 Choose a username")
+                    new_password = st.text_input("🔒 Choose a password", type="password")
+                    confirm_password = st.text_input("🔒 Confirm password", type="password")
+                    role = st.radio("I am a:", ["Student", "Recruiter", "Admin"], horizontal=True)
+                    signup_submitted = st.form_submit_button("Sign Up", use_container_width=True, type="primary")
+
+                    if signup_submitted:
+                        if new_password != confirm_password:
+                            st.error("Passwords do not match")
+                        else:
+                            success, message = signup_user(new_username, new_password, role)
+                            if success:
+                                st.success(message)
+                            else:
+                                st.error(message)
 
 if not st.session_state.logged_in:
     show_login_page()
@@ -193,6 +401,9 @@ with st.sidebar:
         st.session_state.role = None
         st.rerun()
 
+    st.markdown("---")
+    st.caption("Recruitment Copilot · v2.0")
+
 all_candidates = get_all_candidates()
 my_candidates = all_candidates[all_candidates["uploaded_by"] == username] if not all_candidates.empty else all_candidates
 total = len(all_candidates)
@@ -219,9 +430,7 @@ def render_full_profile(cand):
 if st.session_state.page == "Dashboard":
 
     if role == "Student":
-        st.title("👋 My Dashboard")
-        st.caption(f"Welcome back, {username}")
-        st.markdown("---")
+        page_header("👋", f"{get_greeting()}, {username}", "Here's where your job search stands today", role)
 
         if my_candidates.empty:
             st.warning("You haven't uploaded a resume yet.")
@@ -256,11 +465,11 @@ if st.session_state.page == "Dashboard":
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=completeness,
-                    number={"suffix": "%", "font": {"size": 32, "color": "#6366f1"}},
+                    number={"suffix": "%", "font": {"size": 32, "color": "#7c3aed"}},
                     title={"text": "Profile Completeness", "font": {"size": 14}},
                     gauge={
                         "axis": {"range": [0, 100]},
-                        "bar": {"color": "#6366f1"},
+                        "bar": {"color": "#7c3aed"},
                         "steps": [
                             {"range": [0, 60], "color": "#fee2e2"},
                             {"range": [60, 90], "color": "#fef9c3"},
@@ -268,7 +477,7 @@ if st.session_state.page == "Dashboard":
                         ],
                     },
                 ))
-                fig.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20))
+                fig.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("---")
@@ -283,10 +492,8 @@ if st.session_state.page == "Dashboard":
                             badges = "".join([f'<span class="skill-badge">{s}</span>' for s in job["required_skills"]])
                             st.markdown(f"Requires: {badges}", unsafe_allow_html=True)
 
-    else:  # Recruiter / Admin
-        st.title("📊 Recruiter Dashboard" if role == "Recruiter" else "📊 Admin Dashboard")
-        st.caption("Recruitment pipeline overview")
-        st.markdown("---")
+    else:  # Recruiter / Admin — RESTRUCTURED
+        page_header("📊", f"{get_greeting()}, {username}", "Recruitment pipeline overview", role)
 
         m1, m2, m3, m4 = st.columns(4)
         with m1:
@@ -304,7 +511,6 @@ if st.session_state.page == "Dashboard":
             st.markdown(f'<div class="metric-box"><div class="metric-label">Extraction Accuracy</div><div class="metric-value">{accuracy}%</div></div>', unsafe_allow_html=True)
 
         st.markdown("---")
-        st.subheader("📋 Job Postings — Strong Match Count")
 
         if all_jobs.empty:
             st.info("No job postings yet — add one from the Job Postings page.")
@@ -312,44 +518,62 @@ if st.session_state.page == "Dashboard":
             st.info("No candidates in the pool yet.")
         else:
             rows = []
+            best_overall = []
             for _, job in all_jobs.iterrows():
-                results = match_all_candidates(all_candidates, job.to_dict())
-                strong_matches = sum(1 for r in results if r["hiring_score"] >= 85)
-                avg_score = round(sum(r["hiring_score"] for r in results) / len(results), 1) if results else 0
-                rows.append({"Job Title": job["title"], "Candidates Evaluated": len(results),
+                job_results = match_all_candidates(all_candidates, job.to_dict())
+                strong_matches = sum(1 for r in job_results if r["hiring_score"] >= 85)
+                avg_score = round(sum(r["hiring_score"] for r in job_results) / len(job_results), 1) if job_results else 0
+                rows.append({"Job Title": job["title"], "Candidates Evaluated": len(job_results),
                              "Strong Matches (≥85%)": strong_matches, "Avg Match Score": f"{avg_score}%"})
+                if job_results:
+                    top = job_results[0]
+                    best_overall.append({"name": top["name"], "score": top["hiring_score"], "job_title": job["title"]})
 
-            summary_df = pd.DataFrame(rows)
-            fig_pipeline = px.bar(summary_df, x="Job Title", y="Strong Matches (≥85%)",
-                                   color="Strong Matches (≥85%)", color_continuous_scale=["#c7d2fe", "#6366f1"],
-                                   text="Strong Matches (≥85%)")
-            fig_pipeline.update_layout(height=300, showlegend=False, coloraxis_showscale=False,
-                                        margin=dict(t=20, b=10, l=10, r=10))
-            st.plotly_chart(fig_pipeline, use_container_width=True)
+            best_overall.sort(key=lambda x: x["score"], reverse=True)
 
-            table_html = "<table style='width:100%; border-collapse: collapse;'>"
-            table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
-            for col in summary_df.columns:
-                table_html += f"<th style='padding:8px;'>{col}</th>"
-            table_html += "</tr>"
-            for _, row in summary_df.iterrows():
-                table_html += "<tr style='border-bottom: 1px solid #eee;'>"
-                for val in row:
-                    table_html += f"<td style='padding:8px;'>{val}</td>"
+            chart_col, leaderboard_col = st.columns([1.6, 1])
+
+            with chart_col:
+                st.subheader("📋 Strong Match Count by Job")
+                summary_df = pd.DataFrame(rows)
+                fig_pipeline = px.bar(summary_df, x="Job Title", y="Strong Matches (≥85%)",
+                                       color="Strong Matches (≥85%)", color_continuous_scale=["#ddd6fe", "#7c3aed"],
+                                       text="Strong Matches (≥85%)")
+                fig_pipeline.update_layout(height=340, showlegend=False, coloraxis_showscale=False,
+                                            margin=dict(t=20, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                st.plotly_chart(fig_pipeline, use_container_width=True)
+
+                table_html = "<table style='width:100%; border-collapse: collapse;'>"
+                table_html += "<tr style='text-align:left; border-bottom: 2px solid #ece8ff;'>"
+                for col in summary_df.columns:
+                    table_html += f"<th style='padding:8px;'>{col}</th>"
                 table_html += "</tr>"
-            table_html += "</table>"
-            st.markdown(table_html, unsafe_allow_html=True)
+                for _, row in summary_df.iterrows():
+                    table_html += "<tr style='border-bottom: 1px solid #f0edff;'>"
+                    for val in row:
+                        table_html += f"<td style='padding:8px;'>{val}</td>"
+                    table_html += "</tr>"
+                table_html += "</table>"
+                st.markdown(table_html, unsafe_allow_html=True)
+
+            with leaderboard_col:
+                st.subheader("🏆 Top Matches Overall")
+                if best_overall:
+                    medals = ["🥇", "🥈", "🥉"]
+                    for i, entry in enumerate(best_overall[:3]):
+                        with st.container(border=True):
+                            st.markdown(f"<span class='leaderboard-rank'>{medals[i]}</span> **{entry['name']}**", unsafe_allow_html=True)
+                            st.caption(f"Best fit for: {entry['job_title']}")
+                            st.markdown(f"<span style='color:#22c55e; font-weight:800; font-size:20px;'>{entry['score']}%</span>", unsafe_allow_html=True)
+                else:
+                    st.info("No matches computed yet.")
 
 # =========================================================
 # PAGE: Resume Upload
 # =========================================================
 elif st.session_state.page == "Resume Upload":
-    st.title("📄 Resume Parsing & Candidate Profiling")
-    if role == "Student":
-        st.caption("Upload your resume to create your structured profile")
-    else:
-        st.caption("Upload candidate resumes on their behalf to add them to the candidate pool")
-    st.markdown("---")
+    subtitle = "Upload your resume to create your structured profile" if role == "Student" else "Upload candidate resumes on their behalf to add them to the candidate pool"
+    page_header("📄", "Resume Parsing & Candidate Profiling", subtitle, role)
 
     col1, col2 = st.columns([1, 1], gap="large")
 
@@ -389,6 +613,7 @@ elif st.session_state.page == "Resume Upload":
 
                 if success_count > 0:
                     st.success(f"✅ Processed {success_count} resume(s) successfully")
+                    st.balloons()
                     st.rerun()
 
     with col2:
@@ -425,9 +650,7 @@ elif st.session_state.page == "Resume Upload":
 elif st.session_state.page == "Candidates":
 
     if role == "Student":
-        st.title("👤 My Profile")
-        st.caption("This is the structured profile generated from your uploaded resume")
-        st.markdown("---")
+        page_header("👤", "My Profile", "The structured profile generated from your uploaded resume", role)
 
         if my_candidates.empty:
             st.warning("You haven't uploaded a resume yet.")
@@ -443,10 +666,8 @@ elif st.session_state.page == "Candidates":
             render_full_profile(latest)
             st.markdown('</div>', unsafe_allow_html=True)
 
-    else:  # Recruiter / Admin
-        st.title("👥 Candidate Pool")
-        st.caption("All candidates processed across the platform")
-        st.markdown("---")
+    else:  # Recruiter / Admin — RESTRUCTURED AS CARD GRID
+        page_header("👥", "Candidate Pool", "All candidates processed across the platform", role)
 
         if all_candidates.empty:
             st.info("No candidates processed yet.")
@@ -476,27 +697,35 @@ elif st.session_state.page == "Candidates":
                     export_df[col] = export_df[col].apply(lambda x: ", ".join(x) if x else "")
                 st.download_button("⬇️ Export CSV", to_csv_bytes(export_df), "candidates.csv", "text/csv", use_container_width=True)
 
-            st.caption(f"Showing {len(filtered)} of {len(all_candidates)} candidates — click a candidate to expand their full profile")
+            st.caption(f"Showing {len(filtered)} of {len(all_candidates)} candidates")
+            st.markdown("---")
 
-            for _, cand in filtered.iterrows():
-                initials = get_initials(cand["name"])
-                header = f"{cand['name']}  —  {cand['email']}"
-                with st.expander(header):
-                    st.markdown(
-                        f'<span class="avatar-circle">{initials}</span> **{cand["name"]}**',
-                        unsafe_allow_html=True
-                    )
-                    render_full_profile(cand)
+            filtered_list = list(filtered.iterrows())
+            cols_per_row = 3
+            for i in range(0, len(filtered_list), cols_per_row):
+                row_items = filtered_list[i:i + cols_per_row]
+                grid_cols = st.columns(cols_per_row)
+                for grid_col, (_, cand) in zip(grid_cols, row_items):
+                    with grid_col:
+                        with st.container(border=True):
+                            initials = get_initials(cand["name"])
+                            st.markdown(f'<div class="avatar-circle-lg">{initials}</div>', unsafe_allow_html=True)
+                            st.markdown(f"<p style='text-align:center; font-weight:700; margin-bottom:2px;'>{cand['name']}</p>", unsafe_allow_html=True)
+                            st.markdown(f"<p style='text-align:center; font-size:12px; color:#6b7280; margin-bottom:10px;'>{cand['email']}</p>", unsafe_allow_html=True)
+                            top_skills = cand["skills"][:3]
+                            if top_skills:
+                                badges = "".join([f'<span class="skill-badge">{s}</span>' for s in top_skills])
+                                st.markdown(f"<div style='text-align:center;'>{badges}</div>", unsafe_allow_html=True)
+                            with st.expander("View full profile"):
+                                render_full_profile(cand)
 
 # =========================================================
 # PAGE: Job Postings
 # =========================================================
 elif st.session_state.page == "Job Postings":
-    st.title("💼 Job Postings")
 
     if role == "Student":
-        st.caption("Paste a job description, or upload a JD file, to see how well your latest resume matches")
-        st.markdown("---")
+        page_header("💼", "Job Postings", "Paste a job description, or upload a JD file, to check your match", role)
 
         with st.container(border=True):
             job_title_input = st.text_input("Job Title", placeholder="e.g. Software Development Intern")
@@ -533,160 +762,159 @@ elif st.session_state.page == "Job Postings":
                 else:
                     st.error("Please enter a job title and paste or upload a job description")
 
-    else:  # Recruiter or Admin
-        st.caption("Post a job requirement (paste text or upload a file) and rank all candidates against it")
-        st.markdown("---")
+    else:  # Recruiter or Admin — RESTRUCTURED AS TABS
+        page_header("💼", "Job Postings", "Post a job requirement and rank all candidates against it", role)
 
-        with st.container(border=True):
-            st.subheader("➕ Post a New Job")
-            job_title_input = st.text_input("Job Title", placeholder="e.g. Software Development Intern")
-            jd_text = st.text_area("Paste job description", height=150)
-            jd_file = st.file_uploader("Or upload a JD file (PDF/DOCX)", type=["pdf", "docx"], key="jd_file_recruiter")
+        post_tab, view_tab = st.tabs(["➕ Post New Job", "📋 View & Match Candidates"])
 
-            final_jd_text = jd_text
-            if jd_file is not None:
-                extracted = extract_jd_text_from_file(jd_file)
-                if extracted.strip():
-                    final_jd_text = extracted
-                    st.caption(f"📄 Using text extracted from {jd_file.name}")
+        with post_tab:
+            with st.container(border=True):
+                st.subheader("Post a New Job")
+                job_title_input = st.text_input("Job Title", placeholder="e.g. Software Development Intern")
+                jd_text = st.text_area("Paste job description", height=150)
+                jd_file = st.file_uploader("Or upload a JD file (PDF/DOCX)", type=["pdf", "docx"], key="jd_file_recruiter")
 
-            if st.button("🔍 Analyze & Save Job"):
-                if final_jd_text.strip() and job_title_input.strip():
-                    job = analyze_job_description(final_jd_text)
-                    job["title"] = job_title_input.strip()
-                    insert_job(job, username)
-                    st.success(f"Job \"{job['title']}\" saved — {len(job['required_skills'])} required skills detected")
-                    st.rerun()
-                else:
-                    st.error("Please enter a job title and paste or upload a job description")
+                final_jd_text = jd_text
+                if jd_file is not None:
+                    extracted = extract_jd_text_from_file(jd_file)
+                    if extracted.strip():
+                        final_jd_text = extracted
+                        st.caption(f"📄 Using text extracted from {jd_file.name}")
 
-        st.markdown("---")
-        st.subheader("📋 Saved Job Postings")
+                if st.button("🔍 Analyze & Save Job", type="primary"):
+                    if final_jd_text.strip() and job_title_input.strip():
+                        job = analyze_job_description(final_jd_text)
+                        job["title"] = job_title_input.strip()
+                        insert_job(job, username)
+                        st.success(f"Job \"{job['title']}\" saved — {len(job['required_skills'])} required skills detected")
+                        st.rerun()
+                    else:
+                        st.error("Please enter a job title and paste or upload a job description")
 
-        if all_jobs.empty:
-            st.info("No jobs posted yet — add one above.")
-        else:
-            job_titles = all_jobs["title"].tolist()
-            selected_title = st.selectbox("Select a job to view matched candidates", job_titles)
-            selected_job_row = all_jobs[all_jobs["title"] == selected_title].iloc[0]
-            selected_job = selected_job_row.to_dict()
-
-            can_delete = (role == "Admin") or (selected_job.get("created_by") == username)
-            if can_delete:
-                if st.button("🗑️ Delete this job posting"):
-                    delete_job(int(selected_job["id"]))
-                    st.success("Job posting deleted")
-                    st.rerun()
-
-            if all_candidates.empty:
-                st.info("No candidates in the system yet to match against.")
+        with view_tab:
+            if all_jobs.empty:
+                st.info("No jobs posted yet — switch to the 'Post New Job' tab to add one.")
             else:
-                results = match_all_candidates(all_candidates, selected_job)
-                results_df = pd.DataFrame(results)
+                job_titles = all_jobs["title"].tolist()
+                selected_title = st.selectbox("Select a job to view matched candidates", job_titles)
+                selected_job_row = all_jobs[all_jobs["title"] == selected_title].iloc[0]
+                selected_job = selected_job_row.to_dict()
 
-                strong_match_pct = round((sum(1 for r in results if r["hiring_score"] >= 85) / len(results)) * 100, 1) if results else 0
+                can_delete = (role == "Admin") or (selected_job.get("created_by") == username)
+                if can_delete:
+                    if st.button("🗑️ Delete this job posting"):
+                        delete_job(int(selected_job["id"]))
+                        st.success("Job posting deleted")
+                        st.rerun()
 
-                fig_match_gauge = go.Figure(go.Indicator(
-                    mode="gauge+number",
-                    value=strong_match_pct,
-                    number={"suffix": "%", "font": {"size": 36, "color": "#6366f1"}},
-                    title={"text": f"% of Candidates ≥85% Match — {selected_title}", "font": {"size": 14}},
-                    gauge={
-                        "axis": {"range": [0, 100]},
-                        "bar": {"color": "#6366f1"},
-                        "steps": [
-                            {"range": [0, 50], "color": "#fee2e2"},
-                            {"range": [50, 85], "color": "#fef9c3"},
-                            {"range": [85, 100], "color": "#dcfce7"},
-                        ],
-                        "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 85},
-                    },
-                ))
-                fig_match_gauge.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20))
-                st.plotly_chart(fig_match_gauge, use_container_width=True)
-
-                st.markdown("---")
-                st.subheader("📉 Missing Skills Report")
-
-                all_missing = []
-                for r in results:
-                    all_missing.extend(r["missing_skills"])
-
-                report_rows = [{"Candidate": r["name"], "Email": r["email"],
-                                 "Missing Skills": ", ".join(r["missing_skills"]) or "None",
-                                 "Recommendations": "; ".join(r["recommendations"]) or "—"} for r in results]
-                report_df = pd.DataFrame(report_rows)
-
-                st.download_button(
-                    "⬇️ Download Missing Skills Report",
-                    to_csv_bytes(report_df),
-                    f"missing_skills_report_{selected_title}.csv",
-                    "text/csv"
-                )
-
-                if all_missing:
-                    missing_counts = Counter(all_missing).most_common()
-                    missing_df = pd.DataFrame(missing_counts, columns=["Skill", "Candidates Missing It"])
-
-                    fig_missing = px.bar(
-                        missing_df.sort_values("Candidates Missing It"),
-                        x="Candidates Missing It", y="Skill", orientation="h",
-                        color="Candidates Missing It", color_continuous_scale=["#fed7aa", "#f59e0b", "#ea580c"],
-                        text="Candidates Missing It", title=f"Most Common Skill Gaps — {selected_title}"
-                    )
-                    fig_missing.update_traces(textposition="outside")
-                    fig_missing.update_layout(height=280, showlegend=False, coloraxis_showscale=False,
-                                               margin=dict(t=50, b=10, l=10, r=30))
-                    st.plotly_chart(fig_missing, use_container_width=True)
-
-                    table_html = "<table style='width:100%; border-collapse: collapse;'>"
-                    table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
-                    for col in report_df.columns:
-                        table_html += f"<th style='padding:8px;'>{col}</th>"
-                    table_html += "</tr>"
-                    for _, row in report_df.iterrows():
-                        table_html += "<tr style='border-bottom: 1px solid #eee;'>"
-                        for val in row:
-                            table_html += f"<td style='padding:8px;'>{val}</td>"
-                        table_html += "</tr>"
-                    table_html += "</table>"
-                    st.markdown(table_html, unsafe_allow_html=True)
+                if all_candidates.empty:
+                    st.info("No candidates in the system yet to match against.")
                 else:
-                    st.success("No skill gaps — every candidate matches all required skills.")
+                    results = match_all_candidates(all_candidates, selected_job)
+                    results_df = pd.DataFrame(results)
 
-                st.markdown("---")
-                st.markdown(f"**Ranked candidates for: {selected_title}**")
+                    strong_match_pct = round((sum(1 for r in results if r["hiring_score"] >= 85) / len(results)) * 100, 1) if results else 0
 
-                export_df = results_df.copy()
-                export_df["matched_skills"] = export_df["matched_skills"].apply(lambda x: ", ".join(x))
-                export_df["missing_skills"] = export_df["missing_skills"].apply(lambda x: ", ".join(x))
-                export_df["recommendations"] = export_df["recommendations"].apply(lambda x: "; ".join(x))
-                st.download_button("⬇️ Export Full Match Results CSV", to_csv_bytes(export_df), f"matches_{selected_title}.csv", "text/csv")
+                    fig_match_gauge = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=strong_match_pct,
+                        number={"suffix": "%", "font": {"size": 36, "color": "#7c3aed"}},
+                        title={"text": f"% of Candidates ≥85% Match — {selected_title}", "font": {"size": 14}},
+                        gauge={
+                            "axis": {"range": [0, 100]},
+                            "bar": {"color": "#7c3aed"},
+                            "steps": [
+                                {"range": [0, 50], "color": "#fee2e2"},
+                                {"range": [50, 85], "color": "#fef9c3"},
+                                {"range": [85, 100], "color": "#dcfce7"},
+                            ],
+                            "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 85},
+                        },
+                    ))
+                    fig_match_gauge.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)")
+                    st.plotly_chart(fig_match_gauge, use_container_width=True)
 
-                for r in results:
-                    score = r["hiring_score"]
-                    color = "#22c55e" if score >= 85 else "#f59e0b" if score >= 60 else "#ef4444"
-                    rank_badge = {1: "🥇", 2: "🥈", 3: "🥉"}.get(r["rank"], f"#{r['rank']}")
-                    with st.container(border=True):
-                        mcol1, mcol2 = st.columns([3, 1])
-                        with mcol1:
-                            st.markdown(f"**{rank_badge}&nbsp;&nbsp;{r['name']}** — {r['email']}", unsafe_allow_html=True)
-                            if r["matched_skills"]:
-                                badges = "".join([f'<span class="skill-badge">{s}</span>' for s in r["matched_skills"]])
-                                st.markdown(f"Matched: {badges}", unsafe_allow_html=True)
-                            if r["missing_skills"]:
-                                st.markdown(f"⚠️ Missing: {', '.join(r['missing_skills'])}")
-                                for rec in r["recommendations"]:
-                                    st.caption(f"💡 {rec}")
-                        with mcol2:
-                            st.markdown(f"<div style='text-align:center;'><span style='font-size:32px; font-weight:800; color:{color}'>{score}%</span><br><span style='font-size:12px; color:#6b7280;'>Match Score</span></div>", unsafe_allow_html=True)
+                    st.markdown("---")
+                    st.subheader("📉 Missing Skills Report")
+
+                    all_missing = []
+                    for r in results:
+                        all_missing.extend(r["missing_skills"])
+
+                    report_rows = [{"Candidate": r["name"], "Email": r["email"],
+                                     "Missing Skills": ", ".join(r["missing_skills"]) or "None",
+                                     "Recommendations": "; ".join(r["recommendations"]) or "—"} for r in results]
+                    report_df = pd.DataFrame(report_rows)
+
+                    st.download_button(
+                        "⬇️ Download Missing Skills Report",
+                        to_csv_bytes(report_df),
+                        f"missing_skills_report_{selected_title}.csv",
+                        "text/csv"
+                    )
+
+                    if all_missing:
+                        missing_counts = Counter(all_missing).most_common()
+                        missing_df = pd.DataFrame(missing_counts, columns=["Skill", "Candidates Missing It"])
+
+                        fig_missing = px.bar(
+                            missing_df.sort_values("Candidates Missing It"),
+                            x="Candidates Missing It", y="Skill", orientation="h",
+                            color="Candidates Missing It", color_continuous_scale=["#fed7aa", "#f59e0b", "#ea580c"],
+                            text="Candidates Missing It", title=f"Most Common Skill Gaps — {selected_title}"
+                        )
+                        fig_missing.update_traces(textposition="outside")
+                        fig_missing.update_layout(height=280, showlegend=False, coloraxis_showscale=False,
+                                                   margin=dict(t=50, b=10, l=10, r=30), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                        st.plotly_chart(fig_missing, use_container_width=True)
+
+                        table_html = "<table style='width:100%; border-collapse: collapse;'>"
+                        table_html += "<tr style='text-align:left; border-bottom: 2px solid #ece8ff;'>"
+                        for col in report_df.columns:
+                            table_html += f"<th style='padding:8px;'>{col}</th>"
+                        table_html += "</tr>"
+                        for _, row in report_df.iterrows():
+                            table_html += "<tr style='border-bottom: 1px solid #f0edff;'>"
+                            for val in row:
+                                table_html += f"<td style='padding:8px;'>{val}</td>"
+                            table_html += "</tr>"
+                        table_html += "</table>"
+                        st.markdown(table_html, unsafe_allow_html=True)
+                    else:
+                        st.success("No skill gaps — every candidate matches all required skills.")
+
+                    st.markdown("---")
+                    st.markdown(f"**Ranked candidates for: {selected_title}**")
+
+                    export_df = results_df.copy()
+                    export_df["matched_skills"] = export_df["matched_skills"].apply(lambda x: ", ".join(x))
+                    export_df["missing_skills"] = export_df["missing_skills"].apply(lambda x: ", ".join(x))
+                    export_df["recommendations"] = export_df["recommendations"].apply(lambda x: "; ".join(x))
+                    st.download_button("⬇️ Export Full Match Results CSV", to_csv_bytes(export_df), f"matches_{selected_title}.csv", "text/csv")
+
+                    for r in results:
+                        score = r["hiring_score"]
+                        color = "#22c55e" if score >= 85 else "#f59e0b" if score >= 60 else "#ef4444"
+                        rank_badge = {1: "🥇", 2: "🥈", 3: "🥉"}.get(r["rank"], f"#{r['rank']}")
+                        with st.container(border=True):
+                            mcol1, mcol2 = st.columns([3, 1])
+                            with mcol1:
+                                st.markdown(f"**{rank_badge}&nbsp;&nbsp;{r['name']}** — {r['email']}", unsafe_allow_html=True)
+                                if r["matched_skills"]:
+                                    badges = "".join([f'<span class="skill-badge">{s}</span>' for s in r["matched_skills"]])
+                                    st.markdown(f"Matched: {badges}", unsafe_allow_html=True)
+                                if r["missing_skills"]:
+                                    st.markdown(f"⚠️ Missing: {', '.join(r['missing_skills'])}")
+                                    for rec in r["recommendations"]:
+                                        st.caption(f"💡 {rec}")
+                            with mcol2:
+                                st.markdown(f"<div style='text-align:center;'><span style='font-size:32px; font-weight:800; color:{color}'>{score}%</span><br><span style='font-size:12px; color:#6b7280;'>Match Score</span></div>", unsafe_allow_html=True)
 
 # =========================================================
 # PAGE: Analytics
 # =========================================================
 elif st.session_state.page == "Analytics":
-    st.title("📈 Analytics")
-    st.markdown("---")
+    page_header("📈", "Analytics", "Extraction and matching performance across your data", role)
 
     if total == 0:
         st.info("No data yet — process some resumes first.")
@@ -697,11 +925,11 @@ elif st.session_state.page == "Analytics":
             fig_gauge = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=accuracy,
-                number={"suffix": "%", "font": {"size": 40, "color": "#6366f1"}},
+                number={"suffix": "%", "font": {"size": 40, "color": "#7c3aed"}},
                 title={"text": "Extraction Accuracy vs 95% Target", "font": {"size": 14}},
                 gauge={
                     "axis": {"range": [0, 100]},
-                    "bar": {"color": "#6366f1"},
+                    "bar": {"color": "#7c3aed"},
                     "steps": [
                         {"range": [0, 70], "color": "#fee2e2"},
                         {"range": [70, 95], "color": "#fef9c3"},
@@ -710,7 +938,7 @@ elif st.session_state.page == "Analytics":
                     "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 95},
                 },
             ))
-            fig_gauge.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20))
+            fig_gauge.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_gauge, use_container_width=True)
 
         with skills_col:
@@ -724,12 +952,12 @@ elif st.session_state.page == "Analytics":
 
                 fig_skills = px.bar(
                     df_skills, x="Candidates", y="Skill", orientation="h",
-                    color="Candidates", color_continuous_scale=["#c7d2fe", "#6366f1", "#4338ca"],
+                    color="Candidates", color_continuous_scale=["#ddd6fe", "#7c3aed", "#4c1d95"],
                     text="Candidates", title="Top Skills Across All Candidates"
                 )
                 fig_skills.update_traces(textposition="outside")
                 fig_skills.update_layout(height=280, showlegend=False, coloraxis_showscale=False,
-                                          margin=dict(t=50, b=10, l=10, r=30))
+                                          margin=dict(t=50, b=10, l=10, r=30), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
                 st.plotly_chart(fig_skills, use_container_width=True)
             else:
                 st.info("No skills extracted yet.")
@@ -746,11 +974,11 @@ elif st.session_state.page == "Analytics":
             fig_match_acc = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=match_accuracy,
-                number={"suffix": "%", "font": {"size": 40, "color": "#6366f1"}},
+                number={"suffix": "%", "font": {"size": 40, "color": "#7c3aed"}},
                 title={"text": "Matching Accuracy vs 85% Target", "font": {"size": 14}},
                 gauge={
                     "axis": {"range": [0, 100]},
-                    "bar": {"color": "#6366f1"},
+                    "bar": {"color": "#7c3aed"},
                     "steps": [
                         {"range": [0, 60], "color": "#fee2e2"},
                         {"range": [60, 85], "color": "#fef9c3"},
@@ -759,18 +987,18 @@ elif st.session_state.page == "Analytics":
                     "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 85},
                 },
             ))
-            fig_match_acc.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20))
+            fig_match_acc.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_match_acc, use_container_width=True)
 
         with match_table_col:
             match_df = pd.DataFrame(match_test_rows)
             table_html = "<table style='width:100%; border-collapse: collapse; font-size:13px;'>"
-            table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
+            table_html += "<tr style='text-align:left; border-bottom: 2px solid #ece8ff;'>"
             for col in match_df.columns:
                 table_html += f"<th style='padding:6px;'>{col}</th>"
             table_html += "</tr>"
             for _, row in match_df.iterrows():
-                table_html += "<tr style='border-bottom: 1px solid #eee;'>"
+                table_html += "<tr style='border-bottom: 1px solid #f0edff;'>"
                 for val in row:
                     table_html += f"<td style='padding:6px;'>{val}</td>"
                 table_html += "</tr>"
@@ -790,14 +1018,14 @@ elif st.session_state.page == "Analytics":
                 r=field_rates + [field_rates[0]],
                 theta=[f.capitalize() for f in FIELDS] + [FIELDS[0].capitalize()],
                 fill="toself",
-                fillcolor="rgba(99, 102, 241, 0.3)",
-                line=dict(color="#6366f1", width=2),
+                fillcolor="rgba(124, 58, 237, 0.25)",
+                line=dict(color="#7c3aed", width=2),
                 name="Extraction rate"
             ))
             fig_radar.update_layout(
                 polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
                 title="Field Extraction Coverage (%)",
-                height=320, margin=dict(t=50, b=10, l=40, r=40)
+                height=320, margin=dict(t=50, b=10, l=40, r=40), paper_bgcolor="rgba(0,0,0,0)"
             )
             st.plotly_chart(fig_radar, use_container_width=True)
 
@@ -809,11 +1037,11 @@ elif st.session_state.page == "Analytics":
                 labels=["Has certifications", "No certifications"],
                 values=[has_cert, no_cert],
                 hole=0.55,
-                marker=dict(colors=["#8b5cf6", "#f3f4f6"]),
+                marker=dict(colors=["#a78bfa", "#f3f0ff"]),
                 textinfo="percent+label"
             ))
             fig_donut.update_layout(title="Certification Coverage", height=320,
-                                     showlegend=False, margin=dict(t=50, b=10, l=10, r=10))
+                                     showlegend=False, margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_donut, use_container_width=True)
 
         if "created_at" in all_candidates.columns:
@@ -831,16 +1059,14 @@ elif st.session_state.page == "Analytics":
                 name="Total resumes processed"
             ))
             fig_trend.update_layout(title="Cumulative Resumes Processed Over Time",
-                                     height=280, margin=dict(t=50, b=10, l=10, r=10))
+                                     height=280, margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
             st.plotly_chart(fig_trend, use_container_width=True)
 
 # =========================================================
 # PAGE: Manage Users (Admin only)
 # =========================================================
 elif st.session_state.page == "Manage Users":
-    st.title("🛡️ Manage Users")
-    st.caption("All registered accounts on the platform")
-    st.markdown("---")
+    page_header("🛡️", "Manage Users", "All registered accounts on the platform", role)
 
     users = get_all_users()
     if not users:
@@ -850,12 +1076,12 @@ elif st.session_state.page == "Manage Users":
         users_df.columns = ["Username", "Role"]
 
         table_html = "<table style='width:100%; border-collapse: collapse;'>"
-        table_html += "<tr style='text-align:left; border-bottom: 2px solid #ddd;'>"
+        table_html += "<tr style='text-align:left; border-bottom: 2px solid #ece8ff;'>"
         for col in users_df.columns:
             table_html += f"<th style='padding:8px;'>{col}</th>"
         table_html += "</tr>"
         for _, row in users_df.iterrows():
-            table_html += "<tr style='border-bottom: 1px solid #eee;'>"
+            table_html += "<tr style='border-bottom: 1px solid #f0edff;'>"
             for val in row:
                 table_html += f"<td style='padding:8px;'>{val}</td>"
             table_html += "</tr>"
@@ -866,6 +1092,6 @@ elif st.session_state.page == "Manage Users":
         st.markdown("---")
         st.subheader("User Breakdown")
         fig_users = px.pie(values=role_counts.values, names=role_counts.index, hole=0.5,
-                            color_discrete_sequence=["#6366f1", "#8b5cf6", "#ec4899"])
-        fig_users.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10))
+                            color_discrete_sequence=["#7c3aed", "#a78bfa", "#ec4899"])
+        fig_users.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)")
         st.plotly_chart(fig_users, use_container_width=True)
