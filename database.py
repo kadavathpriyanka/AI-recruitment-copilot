@@ -34,6 +34,17 @@ def init_db():
             created_at TIMESTAMP
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ats_status (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            candidate_name TEXT,
+            candidate_email TEXT,
+            job_title TEXT,
+            status TEXT,
+            updated_by TEXT,
+            updated_at TIMESTAMP
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -110,3 +121,34 @@ def delete_job(job_id):
     cursor.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
     conn.commit()
     conn.close()
+
+def add_to_ats(candidate_name, candidate_email, job_title, status, updated_by):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id FROM ats_status WHERE candidate_email = ? AND job_title = ?
+    """, (candidate_email, job_title))
+    existing = cursor.fetchone()
+
+    if existing:
+        cursor.execute("""
+            UPDATE ats_status SET status = ?, updated_by = ?, updated_at = ?
+            WHERE id = ?
+        """, (status, updated_by, datetime.now().isoformat(), existing[0]))
+    else:
+        cursor.execute("""
+            INSERT INTO ats_status (candidate_name, candidate_email, job_title, status, updated_by, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (candidate_name, candidate_email, job_title, status, updated_by, datetime.now().isoformat()))
+
+    conn.commit()
+    conn.close()
+
+def get_ats_status(job_title=None):
+    conn = sqlite3.connect(DB_PATH)
+    if job_title:
+        df = pd.read_sql_query("SELECT * FROM ats_status WHERE job_title = ? ORDER BY updated_at DESC", conn, params=(job_title,))
+    else:
+        df = pd.read_sql_query("SELECT * FROM ats_status ORDER BY updated_at DESC", conn)
+    conn.close()
+    return df

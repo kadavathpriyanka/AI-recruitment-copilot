@@ -8,10 +8,12 @@ from collections import Counter
 from app import process_resume
 from accuracy_check import run_accuracy_check
 from auth import signup_user, login_user, get_all_users
-from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates, insert_job, get_all_jobs, delete_job
+from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates, insert_job, get_all_jobs, delete_job, add_to_ats, get_ats_status
 from jd_extractor import analyze_job_description
 from matching_engine import match_all_candidates, calculate_match, skill_gap_analysis
 from matching_accuracy_check import get_accuracy_results
+from interview_generator import generate_questions
+from interview_simulation import start_interview, get_opening_message, submit_answer, get_current_question
 from parser.pdf_reader import extract_text_from_pdf
 from parser.docx_reader import extract_text_from_docx
 
@@ -149,6 +151,29 @@ st.markdown("""
     font-size: 20px;
     margin-right: 8px;
 }
+.chat-bubble-ai {
+    background: #f3f0ff;
+    border-radius: 14px 14px 14px 2px;
+    padding: 10px 16px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 90%;
+}
+.chat-bubble-candidate {
+    background: #ede9fe;
+    border-radius: 14px 14px 2px 14px;
+    padding: 10px 16px;
+    margin-bottom: 14px;
+    font-size: 14px;
+    max-width: 90%;
+    margin-left: auto;
+    text-align: right;
+}
+.status-pill-Applied { background:#e0e7ff; color:#3730a3; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
+.status-pill-Interview_Scheduled { background:#fef9c3; color:#854d0e; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
+.status-pill-Interview_Completed { background:#dbeafe; color:#1e40af; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
+.status-pill-Offer_Extended { background:#dcfce7; color:#166534; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
+.status-pill-Rejected { background:#fee2e2; color:#991b1b; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
 
 /* Global: every bordered container gets the premium card look */
 div[data-testid="stVerticalBlockBorderWrapper"] {
@@ -305,10 +330,10 @@ def show_login_page():
                 </div>
             </div>
             <div class="login-feature">
-                <div class="login-feature-icon">📊</div>
+                <div class="login-feature-icon">🎙️</div>
                 <div>
-                    <div class="login-feature-title">Skill-Gap Analytics</div>
-                    <div class="login-feature-desc">See exactly what's missing and get training recommendations, automatically.</div>
+                    <div class="login-feature-title">Interview Assistant</div>
+                    <div class="login-feature-desc">Generate role-specific questions and simulate interviews with ATS tracking.</div>
                 </div>
             </div>
             <div class="login-stat-row">
@@ -372,6 +397,10 @@ username = st.session_state.username
 NAV_ITEMS = ["Dashboard", "Resume Upload", "Candidates", "Job Postings", "Analytics"]
 NAV_ICONS = {"Dashboard": "📊", "Resume Upload": "📄", "Candidates": "👥", "Job Postings": "💼", "Analytics": "📈"}
 
+if role in ["Recruiter", "Admin"]:
+    NAV_ITEMS = NAV_ITEMS + ["Interview Assistant"]
+    NAV_ICONS["Interview Assistant"] = "🎙️"
+
 if role == "Admin":
     NAV_ITEMS = NAV_ITEMS + ["Manage Users"]
     NAV_ICONS["Manage Users"] = "🛡️"
@@ -402,7 +431,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("Recruitment Copilot · v2.0")
+    st.caption("Recruitment Copilot · v3.0")
 
 all_candidates = get_all_candidates()
 my_candidates = all_candidates[all_candidates["uploaded_by"] == username] if not all_candidates.empty else all_candidates
@@ -492,7 +521,7 @@ if st.session_state.page == "Dashboard":
                             badges = "".join([f'<span class="skill-badge">{s}</span>' for s in job["required_skills"]])
                             st.markdown(f"Requires: {badges}", unsafe_allow_html=True)
 
-    else:  # Recruiter / Admin — RESTRUCTURED
+    else:  # Recruiter / Admin
         page_header("📊", f"{get_greeting()}, {username}", "Recruitment pipeline overview", role)
 
         m1, m2, m3, m4 = st.columns(4)
@@ -666,7 +695,7 @@ elif st.session_state.page == "Candidates":
             render_full_profile(latest)
             st.markdown('</div>', unsafe_allow_html=True)
 
-    else:  # Recruiter / Admin — RESTRUCTURED AS CARD GRID
+    else:  # Recruiter / Admin
         page_header("👥", "Candidate Pool", "All candidates processed across the platform", role)
 
         if all_candidates.empty:
@@ -762,7 +791,7 @@ elif st.session_state.page == "Job Postings":
                 else:
                     st.error("Please enter a job title and paste or upload a job description")
 
-    else:  # Recruiter or Admin — RESTRUCTURED AS TABS
+    else:  # Recruiter or Admin
         page_header("💼", "Job Postings", "Post a job requirement and rank all candidates against it", role)
 
         post_tab, view_tab = st.tabs(["➕ Post New Job", "📋 View & Match Candidates"])
@@ -909,6 +938,116 @@ elif st.session_state.page == "Job Postings":
                                         st.caption(f"💡 {rec}")
                             with mcol2:
                                 st.markdown(f"<div style='text-align:center;'><span style='font-size:32px; font-weight:800; color:{color}'>{score}%</span><br><span style='font-size:12px; color:#6b7280;'>Match Score</span></div>", unsafe_allow_html=True)
+
+# =========================================================
+# PAGE: Interview Assistant (Recruiter/Admin only)
+# =========================================================
+elif st.session_state.page == "Interview Assistant":
+    page_header("🎙️", "Interview Assistance & ATS Integration", "Generate interview questions, simulate interviews, and manage candidates", role)
+
+    gen_col, sim_col = st.columns([1, 1], gap="large")
+
+    with gen_col:
+        with st.container(border=True):
+            st.subheader("📋 Interview Question Generator")
+            if all_jobs.empty:
+                st.info("No job postings yet — add one from the Job Postings page.")
+            else:
+                job_titles = all_jobs["title"].tolist()
+                gen_job_title = st.selectbox("Job Position", job_titles, key="gen_job_select")
+                q_type = st.selectbox("Question Type", ["technical", "behavioral"], key="gen_qtype")
+                num_q = st.slider("Number of questions", 1, 5, 3, key="gen_numq")
+
+                if st.button("🔄 Generate Questions", type="primary"):
+                    gen_job = all_jobs[all_jobs["title"] == gen_job_title].iloc[0].to_dict()
+                    st.session_state.generated_questions = generate_questions(gen_job, q_type, num_q)
+
+                if "generated_questions" in st.session_state:
+                    for i, q in enumerate(st.session_state.generated_questions, start=1):
+                        st.markdown(f"**{i}.** {q}")
+
+    with sim_col:
+        with st.container(border=True):
+            st.subheader("🎤 AI Interview Simulation")
+
+            if all_candidates.empty or all_jobs.empty:
+                st.info("Need at least one candidate and one job posting to start a simulation.")
+            else:
+                sim_candidate_name = st.selectbox("Candidate", all_candidates["name"].tolist(), key="sim_candidate")
+                sim_job_title = st.selectbox("Job Position", all_jobs["title"].tolist(), key="sim_job")
+
+                if st.button("▶️ Start Interview"):
+                    sim_job = all_jobs[all_jobs["title"] == sim_job_title].iloc[0].to_dict()
+                    st.session_state.interview_session = start_interview(sim_candidate_name, sim_job)
+                    st.session_state.interview_started = True
+
+                if st.session_state.get("interview_started") and "interview_session" in st.session_state:
+                    session = st.session_state.interview_session
+
+                    st.markdown(f"<div class='chat-bubble-ai'>{get_opening_message(session['candidate_name'], session['job_title'])}</div>", unsafe_allow_html=True)
+
+                    for turn in session["transcript"]:
+                        st.markdown(f"<div class='chat-bubble-ai'>{turn['question']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='chat-bubble-candidate'>{turn['answer']}</div>", unsafe_allow_html=True)
+
+                    current_q = get_current_question(session)
+                    if current_q:
+                        st.markdown(f"<div class='chat-bubble-ai'>{current_q}</div>", unsafe_allow_html=True)
+                        answer = st.text_area("Type response...", key=f"answer_{session['current_index']}", label_visibility="collapsed")
+                        if st.button("➤ Send", key=f"send_{session['current_index']}", type="primary"):
+                            if answer.strip():
+                                st.session_state.interview_session = submit_answer(session, answer.strip())
+                                st.rerun()
+                            else:
+                                st.warning("Please type a response before sending.")
+                    else:
+                        st.success("Interview completed. Candidate responses stored for ATS review.")
+                        candidate_match = all_candidates[all_candidates["name"] == session["candidate_name"]]
+                        if not candidate_match.empty and st.button("✅ Mark as 'Interview Completed' in ATS"):
+                            candidate_row = candidate_match.iloc[0]
+                            add_to_ats(session["candidate_name"], candidate_row["email"], session["job_title"], "Interview Completed", username)
+                            st.success("ATS status updated.")
+                            st.session_state.interview_started = False
+                            del st.session_state.interview_session
+                            st.rerun()
+
+    st.markdown("---")
+    st.subheader("🔗 ATS Integration")
+
+    if all_candidates.empty or all_jobs.empty:
+        st.info("Add candidates and job postings to use ATS tracking.")
+    else:
+        with st.container(border=True):
+            ats_col1, ats_col2, ats_col3, ats_col4 = st.columns([2, 2, 2, 1])
+            with ats_col1:
+                ats_candidate = st.selectbox("Candidate", all_candidates["name"].tolist(), key="ats_candidate")
+            with ats_col2:
+                ats_job = st.selectbox("Job", all_jobs["title"].tolist(), key="ats_job")
+            with ats_col3:
+                ats_new_status = st.selectbox("Status", ["Applied", "Interview Scheduled", "Interview Completed", "Offer Extended", "Rejected"], key="ats_status_select")
+            with ats_col4:
+                st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
+                if st.button("Update", key="ats_update_btn"):
+                    cand_row = all_candidates[all_candidates["name"] == ats_candidate].iloc[0]
+                    add_to_ats(ats_candidate, cand_row["email"], ats_job, ats_new_status, username)
+                    st.success("ATS status updated")
+                    st.rerun()
+
+        ats_df = get_ats_status()
+        if not ats_df.empty:
+            for _, row in ats_df.iterrows():
+                status_class = row["status"].replace(" ", "_")
+                with st.container(border=True):
+                    acol1, acol2, acol3 = st.columns([2, 2, 1])
+                    with acol1:
+                        st.markdown(f"**{row['candidate_name']}**")
+                        st.caption(row["job_title"])
+                    with acol2:
+                        st.markdown(f"<span class='status-pill-{status_class}'>{row['status']}</span>", unsafe_allow_html=True)
+                    with acol3:
+                        st.caption(row["updated_at"][:16].replace("T", " "))
+        else:
+            st.info("No ATS records yet — update a status above to start tracking.")
 
 # =========================================================
 # PAGE: Analytics
