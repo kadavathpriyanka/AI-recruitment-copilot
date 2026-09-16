@@ -10,5 +10,9 @@
   "ram": {
     "password": "a631f4488a457da27b4a64dc8f2d85085b50ff568be99125cf6f8f45c759878e",
     "role": "Recruiter"
+  },
+  "venu": {
+    "password": "b896a2f80bd20d43aa905378e7a8125213e5951b1ad726539db443390c70c2d3",
+    "role": "Recruiter"
   }
 }

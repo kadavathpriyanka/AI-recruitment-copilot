@@ -163,11 +163,23 @@ st.markdown("""
     background: #ede9fe;
     border-radius: 14px 14px 2px 14px;
     padding: 10px 16px;
-    margin-bottom: 14px;
+    margin-bottom: 4px;
     font-size: 14px;
     max-width: 90%;
     margin-left: auto;
     text-align: right;
+}
+.relevance-tag-yes {
+    color: #16a34a;
+    font-size: 11px;
+    text-align: right;
+    margin-bottom: 14px;
+}
+.relevance-tag-no {
+    color: #9ca3af;
+    font-size: 11px;
+    text-align: right;
+    margin-bottom: 14px;
 }
 .status-pill-Applied { background:#e0e7ff; color:#3730a3; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
 .status-pill-Interview_Scheduled { background:#fef9c3; color:#854d0e; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
@@ -956,15 +968,16 @@ elif st.session_state.page == "Interview Assistant":
                 job_titles = all_jobs["title"].tolist()
                 gen_job_title = st.selectbox("Job Position", job_titles, key="gen_job_select")
                 q_type = st.selectbox("Question Type", ["technical", "behavioral"], key="gen_qtype")
+                gen_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="gen_difficulty")
                 num_q = st.slider("Number of questions", 1, 5, 3, key="gen_numq")
 
                 if st.button("🔄 Generate Questions", type="primary"):
                     gen_job = all_jobs[all_jobs["title"] == gen_job_title].iloc[0].to_dict()
-                    st.session_state.generated_questions = generate_questions(gen_job, q_type, num_q)
+                    st.session_state.generated_questions = generate_questions(gen_job, q_type, num_q, gen_difficulty)
 
                 if "generated_questions" in st.session_state:
                     for i, q in enumerate(st.session_state.generated_questions, start=1):
-                        st.markdown(f"**{i}.** {q}")
+                        st.markdown(f"**{i}.** {q['question']}")
 
     with sim_col:
         with st.container(border=True):
@@ -975,10 +988,11 @@ elif st.session_state.page == "Interview Assistant":
             else:
                 sim_candidate_name = st.selectbox("Candidate", all_candidates["name"].tolist(), key="sim_candidate")
                 sim_job_title = st.selectbox("Job Position", all_jobs["title"].tolist(), key="sim_job")
+                sim_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="sim_difficulty")
 
                 if st.button("▶️ Start Interview"):
                     sim_job = all_jobs[all_jobs["title"] == sim_job_title].iloc[0].to_dict()
-                    st.session_state.interview_session = start_interview(sim_candidate_name, sim_job)
+                    st.session_state.interview_session = start_interview(sim_candidate_name, sim_job, difficulty=sim_difficulty)
                     st.session_state.interview_started = True
 
                 if st.session_state.get("interview_started") and "interview_session" in st.session_state:
@@ -989,6 +1003,11 @@ elif st.session_state.page == "Interview Assistant":
                     for turn in session["transcript"]:
                         st.markdown(f"<div class='chat-bubble-ai'>{turn['question']}</div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-candidate'>{turn['answer']}</div>", unsafe_allow_html=True)
+                        if turn.get("mentions_skill") is not None:
+                            if turn["mentions_skill"]:
+                                st.markdown(f"<div class='relevance-tag-yes'>✓ mentions {turn['skill']}</div>", unsafe_allow_html=True)
+                            else:
+                                st.markdown(f"<div class='relevance-tag-no'>— doesn't mention {turn['skill']}</div>", unsafe_allow_html=True)
 
                     current_q = get_current_question(session)
                     if current_q:
@@ -1002,6 +1021,16 @@ elif st.session_state.page == "Interview Assistant":
                                 st.warning("Please type a response before sending.")
                     else:
                         st.success("Interview completed. Candidate responses stored for ATS review.")
+
+                        transcript_df = pd.DataFrame(session["transcript"])
+                        transcript_df.columns = ["Question", "Skill Tested", "Answer", "Mentions Skill"]
+                        st.download_button(
+                            "⬇️ Download Interview Transcript",
+                            to_csv_bytes(transcript_df),
+                            f"interview_transcript_{session['candidate_name'].replace(' ', '_')}.csv",
+                            "text/csv"
+                        )
+
                         candidate_match = all_candidates[all_candidates["name"] == session["candidate_name"]]
                         if not candidate_match.empty and st.button("✅ Mark as 'Interview Completed' in ATS"):
                             candidate_row = candidate_match.iloc[0]
