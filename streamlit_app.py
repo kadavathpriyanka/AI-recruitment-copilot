@@ -171,15 +171,25 @@ st.markdown("""
 }
 .relevance-tag-yes {
     color: #16a34a;
-    font-size: 11px;
+    font-size: 12px;
     text-align: right;
     margin-bottom: 14px;
+    background: #f0fdf4;
+    padding: 6px 10px;
+    border-radius: 8px;
+    max-width: 90%;
+    margin-left: auto;
 }
 .relevance-tag-no {
-    color: #9ca3af;
-    font-size: 11px;
+    color: #b45309;
+    font-size: 12px;
     text-align: right;
     margin-bottom: 14px;
+    background: #fffbeb;
+    padding: 6px 10px;
+    border-radius: 8px;
+    max-width: 90%;
+    margin-left: auto;
 }
 .status-pill-Applied { background:#e0e7ff; color:#3730a3; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
 .status-pill-Interview_Scheduled { background:#fef9c3; color:#854d0e; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
@@ -1003,11 +1013,9 @@ elif st.session_state.page == "Interview Assistant":
                     for turn in session["transcript"]:
                         st.markdown(f"<div class='chat-bubble-ai'>{turn['question']}</div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-candidate'>{turn['answer']}</div>", unsafe_allow_html=True)
-                        if turn.get("mentions_skill") is not None:
-                            if turn["mentions_skill"]:
-                                st.markdown(f"<div class='relevance-tag-yes'>✓ mentions {turn['skill']}</div>", unsafe_allow_html=True)
-                            else:
-                                st.markdown(f"<div class='relevance-tag-no'>— doesn't mention {turn['skill']}</div>", unsafe_allow_html=True)
+                        tag_class = "relevance-tag-yes" if turn.get("mentions_skill") else "relevance-tag-no"
+                        feedback_text = turn.get("feedback", "")
+                        st.markdown(f"<div class='{tag_class}'>🤖 {feedback_text}</div>", unsafe_allow_html=True)
 
                     current_q = get_current_question(session)
                     if current_q:
@@ -1023,7 +1031,9 @@ elif st.session_state.page == "Interview Assistant":
                         st.success("Interview completed. Candidate responses stored for ATS review.")
 
                         transcript_df = pd.DataFrame(session["transcript"])
-                        transcript_df.columns = ["Question", "Skill Tested", "Answer", "Mentions Skill"]
+                        if "feedback" in transcript_df.columns:
+                            transcript_df = transcript_df[["question", "skill", "answer", "mentions_skill", "feedback"]]
+                            transcript_df.columns = ["Question", "Skill Tested", "Answer", "Relevant", "AI Feedback"]
                         st.download_button(
                             "⬇️ Download Interview Transcript",
                             to_csv_bytes(transcript_df),
