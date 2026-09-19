@@ -453,7 +453,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("Recruitment Copilot · v3.0")
+    st.caption("Recruitment Copilot · v3.1")
 
 all_candidates = get_all_candidates()
 my_candidates = all_candidates[all_candidates["uploaded_by"] == username] if not all_candidates.empty else all_candidates
@@ -977,17 +977,22 @@ elif st.session_state.page == "Interview Assistant":
             else:
                 job_titles = all_jobs["title"].tolist()
                 gen_job_title = st.selectbox("Job Position", job_titles, key="gen_job_select")
-                q_type = st.selectbox("Question Type", ["technical", "behavioral"], key="gen_qtype")
+                q_type = st.selectbox("Question Type", ["technical", "behavioral", "aptitude"], key="gen_qtype")
                 gen_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="gen_difficulty")
-                num_q = st.slider("Number of questions", 1, 5, 3, key="gen_numq")
+                num_q = st.number_input("Number of questions", min_value=1, max_value=50, value=3, step=1, key="gen_numq")
 
                 if st.button("🔄 Generate Questions", type="primary"):
                     gen_job = all_jobs[all_jobs["title"] == gen_job_title].iloc[0].to_dict()
-                    st.session_state.generated_questions = generate_questions(gen_job, q_type, num_q, gen_difficulty)
+                    st.session_state.generated_questions = generate_questions(gen_job, q_type, int(num_q), gen_difficulty)
 
                 if "generated_questions" in st.session_state:
                     for i, q in enumerate(st.session_state.generated_questions, start=1):
                         st.markdown(f"**{i}.** {q['question']}")
+                        with st.expander("👁️ View Solution"):
+                            if q.get("answer"):
+                                st.markdown(q["answer"])
+                            else:
+                                st.caption("No single correct answer — evaluate based on the candidate's specific example and reasoning.")
 
     with sim_col:
         with st.container(border=True):
@@ -1000,10 +1005,25 @@ elif st.session_state.page == "Interview Assistant":
                 sim_job_title = st.selectbox("Job Position", all_jobs["title"].tolist(), key="sim_job")
                 sim_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="sim_difficulty")
 
+                sim_qcol1, sim_qcol2, sim_qcol3 = st.columns(3)
+                with sim_qcol1:
+                    sim_num_tech = st.number_input("Technical", min_value=0, max_value=20, value=2, step=1, key="sim_num_tech")
+                with sim_qcol2:
+                    sim_num_beh = st.number_input("Behavioral", min_value=0, max_value=20, value=1, step=1, key="sim_num_beh")
+                with sim_qcol3:
+                    sim_num_apt = st.number_input("Aptitude", min_value=0, max_value=20, value=0, step=1, key="sim_num_apt")
+
                 if st.button("▶️ Start Interview"):
-                    sim_job = all_jobs[all_jobs["title"] == sim_job_title].iloc[0].to_dict()
-                    st.session_state.interview_session = start_interview(sim_candidate_name, sim_job, difficulty=sim_difficulty)
-                    st.session_state.interview_started = True
+                    if sim_num_tech + sim_num_beh + sim_num_apt == 0:
+                        st.error("Add at least one question of any type.")
+                    else:
+                        sim_job = all_jobs[all_jobs["title"] == sim_job_title].iloc[0].to_dict()
+                        st.session_state.interview_session = start_interview(
+                            sim_candidate_name, sim_job,
+                            num_technical=int(sim_num_tech), num_behavioral=int(sim_num_beh),
+                            num_aptitude=int(sim_num_apt), difficulty=sim_difficulty
+                        )
+                        st.session_state.interview_started = True
 
                 if st.session_state.get("interview_started") and "interview_session" in st.session_state:
                     session = st.session_state.interview_session
@@ -1016,6 +1036,9 @@ elif st.session_state.page == "Interview Assistant":
                         tag_class = "relevance-tag-yes" if turn.get("mentions_skill") else "relevance-tag-no"
                         feedback_text = turn.get("feedback", "")
                         st.markdown(f"<div class='{tag_class}'>🤖 {feedback_text}</div>", unsafe_allow_html=True)
+                        if turn.get("correct_answer"):
+                            with st.expander("👁️ View Solution"):
+                                st.markdown(turn["correct_answer"])
 
                     current_q = get_current_question(session)
                     if current_q:
@@ -1032,8 +1055,8 @@ elif st.session_state.page == "Interview Assistant":
 
                         transcript_df = pd.DataFrame(session["transcript"])
                         if "feedback" in transcript_df.columns:
-                            transcript_df = transcript_df[["question", "skill", "answer", "mentions_skill", "feedback"]]
-                            transcript_df.columns = ["Question", "Skill Tested", "Answer", "Relevant", "AI Feedback"]
+                            transcript_df = transcript_df[["question", "skill", "type", "answer", "mentions_skill", "feedback"]]
+                            transcript_df.columns = ["Question", "Skill Tested", "Question Type", "Answer", "Relevant", "AI Feedback"]
                         st.download_button(
                             "⬇️ Download Interview Transcript",
                             to_csv_bytes(transcript_df),

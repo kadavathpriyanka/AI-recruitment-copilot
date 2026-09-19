@@ -7,8 +7,6 @@ FOLLOWUP_ACKS = [
     "Thanks, that gives me a good sense of your experience.",
 ]
 
-# Related terms per skill — so an answer counts as relevant even without
-# using the exact skill name (e.g. "structured query language" for SQL).
 SKILL_KEYWORDS = {
     "python": ["python", "py", "django", "flask", "pandas", "numpy", "script"],
     "java": ["java", "jvm", "oop", "object oriented", "class", "spring"],
@@ -27,12 +25,13 @@ SKILL_KEYWORDS = {
     "streamlit": ["streamlit", "dashboard", "widget"],
 }
 
-def start_interview(candidate_name, job, num_technical=2, num_behavioral=1, difficulty="Intermediate"):
+def start_interview(candidate_name, job, num_technical=2, num_behavioral=1, num_aptitude=0, difficulty="Intermediate"):
     from interview_generator import generate_questions
 
     questions = (
         generate_questions(job, "technical", num_technical, difficulty) +
-        generate_questions(job, "behavioral", num_behavioral, difficulty)
+        generate_questions(job, "behavioral", num_behavioral, difficulty) +
+        generate_questions(job, "aptitude", num_aptitude, difficulty)
     )
 
     return {
@@ -47,13 +46,16 @@ def start_interview(candidate_name, job, num_technical=2, num_behavioral=1, diff
 def get_opening_message(candidate_name, job_title):
     return f"Hello {candidate_name}, I'm your AI interviewer today. We'll go through a few questions about the {job_title} role — take your time with each answer."
 
-def evaluate_answer(answer_text, skill):
+def evaluate_answer(answer_text, skill, qtype="technical"):
     """
     Lightweight heuristic evaluation — not true language understanding,
     just keyword/synonym matching plus a basic depth check.
     Returns: (relevant: bool or None, feedback: str)
     """
     word_count = len(answer_text.split())
+
+    if qtype == "aptitude":
+        return None, "Recorded — check the 'View Solution' answer to verify correctness."
 
     if not skill:
         # Behavioral question — no skill to check, just judge on detail
@@ -81,14 +83,17 @@ def submit_answer(session, answer_text):
 
     current_q = session["questions"][session["current_index"]]
     skill = current_q.get("skill")
-    relevant, feedback = evaluate_answer(answer_text, skill)
+    qtype = current_q.get("type", "technical")
+    relevant, feedback = evaluate_answer(answer_text, skill, qtype)
 
     session["transcript"].append({
         "question": current_q["question"],
         "skill": skill,
+        "type": qtype,
         "answer": answer_text,
         "mentions_skill": relevant,
         "feedback": feedback,
+        "correct_answer": current_q.get("answer"),
     })
     session["current_index"] += 1
 
