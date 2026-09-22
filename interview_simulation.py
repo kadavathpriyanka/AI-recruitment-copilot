@@ -1,4 +1,5 @@
 import random
+from collections import Counter
 
 FOLLOWUP_ACKS = [
     "Thanks for sharing that.",
@@ -58,7 +59,6 @@ def evaluate_answer(answer_text, skill, qtype="technical"):
         return None, "Recorded — check the 'View Solution' answer to verify correctness."
 
     if not skill:
-        # Behavioral question — no skill to check, just judge on detail
         if word_count >= 20:
             return None, "Good — specific and detailed answer."
         elif word_count >= 8:
@@ -109,3 +109,26 @@ def get_current_question(session):
 
 def get_random_ack():
     return random.choice(FOLLOWUP_ACKS)
+
+def compute_interview_summary(session):
+    """
+    Returns percentage-based stats for pictorial display:
+    - technical_relevant_pct: % of technical answers that referenced the right skill
+    - type_counts: how many questions of each type were answered
+    """
+    transcript = session["transcript"]
+    total = len(transcript)
+
+    technical = [t for t in transcript if t["type"] == "technical"]
+    relevant_technical = sum(1 for t in technical if t.get("mentions_skill") is True)
+    technical_relevant_pct = round((relevant_technical / len(technical)) * 100, 1) if technical else None
+
+    type_counts = dict(Counter(t["type"] for t in transcript))
+
+    return {
+        "total_questions": total,
+        "technical_count": len(technical),
+        "technical_relevant_count": relevant_technical,
+        "technical_relevant_pct": technical_relevant_pct,
+        "type_counts": type_counts,
+    }

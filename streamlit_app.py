@@ -13,7 +13,7 @@ from jd_extractor import analyze_job_description
 from matching_engine import match_all_candidates, calculate_match, skill_gap_analysis
 from matching_accuracy_check import get_accuracy_results
 from interview_generator import generate_questions
-from interview_simulation import start_interview, get_opening_message, submit_answer, get_current_question
+from interview_simulation import start_interview, get_opening_message, submit_answer, get_current_question, compute_interview_summary
 from parser.pdf_reader import extract_text_from_pdf
 from parser.docx_reader import extract_text_from_docx
 
@@ -318,6 +318,48 @@ def extract_jd_text_from_file(uploaded_file):
         return extract_text_from_docx(save_path)
     return ""
 
+def render_interview_summary_charts(session):
+    """Shared pictorial summary (gauge + donut) shown after any interview completes."""
+    summary = compute_interview_summary(session)
+
+    chart_col1, chart_col2 = st.columns(2)
+
+    with chart_col1:
+        if summary["technical_relevant_pct"] is not None:
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=summary["technical_relevant_pct"],
+                number={"suffix": "%", "font": {"size": 30, "color": "#7c3aed"}},
+                title={"text": "Technical Answer Relevance", "font": {"size": 13}},
+                gauge={
+                    "axis": {"range": [0, 100]},
+                    "bar": {"color": "#7c3aed"},
+                    "steps": [
+                        {"range": [0, 50], "color": "#fee2e2"},
+                        {"range": [50, 80], "color": "#fef9c3"},
+                        {"range": [80, 100], "color": "#dcfce7"},
+                    ],
+                },
+            ))
+            fig_gauge.update_layout(height=220, margin=dict(t=40, b=10, l=15, r=15), paper_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig_gauge, use_container_width=True)
+        else:
+            st.caption("No technical questions in this session to score.")
+
+    with chart_col2:
+        type_counts = summary["type_counts"]
+        if type_counts:
+            fig_donut = go.Figure(go.Pie(
+                labels=[t.capitalize() for t in type_counts.keys()],
+                values=list(type_counts.values()),
+                hole=0.55,
+                marker=dict(colors=["#7c3aed", "#a78bfa", "#f0abfc"]),
+                textinfo="percent+label"
+            ))
+            fig_donut.update_layout(title="Question Mix", height=220, showlegend=False,
+                                     margin=dict(t=40, b=10, l=15, r=15), paper_bgcolor="rgba(0,0,0,0)")
+            st.plotly_chart(fig_donut, use_container_width=True)
+
 # ---- Auth state ----
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -453,7 +495,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("Recruitment Copilot · v3.1")
+    st.caption("Recruitment Copilot · v3.2")
 
 all_candidates = get_all_candidates()
 my_candidates = all_candidates[all_candidates["uploaded_by"] == username] if not all_candidates.empty else all_candidates
@@ -776,8 +818,9 @@ elif st.session_state.page == "Candidates":
 elif st.session_state.page == "Job Postings":
 
     if role == "Student":
-        page_header("💼", "Job Postings", "Paste a job description, or upload a JD file, to check your match", role)
+        page_header("💼", "Job Postings", "Check your match, or practice interviewing for a role", role)
 
+        st.subheader("🎯 Check My Match")
         with st.container(border=True):
             job_title_input = st.text_input("Job Title", placeholder="e.g. Software Development Intern")
             jd_text = st.text_area("Paste job description", height=150)
@@ -812,6 +855,85 @@ elif st.session_state.page == "Job Postings":
                                 st.caption(f"💡 {rec}")
                 else:
                     st.error("Please enter a job title and paste or upload a job description")
+
+        st.markdown("---")
+        st.subheader("🎤 Practice Interview")
+        st.caption("Practice answering role-specific questions before the real thing — questions and feedback work the same way recruiters see them.")
+
+        if all_jobs.empty:
+            st.info("No job postings available yet to practice against.")
+        elif my_candidates.empty:
+            st.info("Upload your resume first from the Resume Upload page to start practicing.")
+        else:
+            with st.container(border=True):
+                prac_job_title = st.selectbox("Job Position", all_jobs["title"].tolist(), key="prac_job")
+                prac_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="prac_difficulty")
+
+                prac_qcol1, prac_qcol2, prac_qcol3 = st.columns(3)
+                with prac_qcol1:
+                    prac_num_tech = st.number_input("Technical", min_value=0, max_value=20, value=2, step=1, key="prac_num_tech")
+                with prac_qcol2:
+                    prac_num_beh = st.number_input("Behavioral", min_value=0, max_value=20, value=1, step=1, key="prac_num_beh")
+                with prac_qcol3:
+                    prac_num_apt = st.number_input("Aptitude", min_value=0, max_value=20, value=0, step=1, key="prac_num_apt")
+
+                if st.button("▶️ Start Practice", type="primary"):
+                    if prac_num_tech + prac_num_beh + prac_num_apt == 0:
+                        st.error("Add at least one question of any type.")
+                    else:
+                        prac_job = all_jobs[all_jobs["title"] == prac_job_title].iloc[0].to_dict()
+                        my_latest = my_candidates.iloc[-1]
+                        st.session_state.practice_session = start_interview(
+                            my_latest["name"], prac_job,
+                            num_technical=int(prac_num_tech), num_behavioral=int(prac_num_beh),
+                            num_aptitude=int(prac_num_apt), difficulty=prac_difficulty
+                        )
+                        st.session_state.practice_started = True
+
+                if st.session_state.get("practice_started") and "practice_session" in st.session_state:
+                    psession = st.session_state.practice_session
+
+                    st.markdown(f"<div class='chat-bubble-ai'>{get_opening_message(psession['candidate_name'], psession['job_title'])}</div>", unsafe_allow_html=True)
+
+                    for turn in psession["transcript"]:
+                        st.markdown(f"<div class='chat-bubble-ai'>{turn['question']}</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='chat-bubble-candidate'>{turn['answer']}</div>", unsafe_allow_html=True)
+                        tag_class = "relevance-tag-yes" if turn.get("mentions_skill") else "relevance-tag-no"
+                        st.markdown(f"<div class='{tag_class}'>🤖 {turn.get('feedback', '')}</div>", unsafe_allow_html=True)
+                        if turn.get("correct_answer"):
+                            with st.expander("👁️ View Solution"):
+                                st.markdown(turn["correct_answer"])
+
+                    prac_current_q = get_current_question(psession)
+                    if prac_current_q:
+                        st.markdown(f"<div class='chat-bubble-ai'>{prac_current_q}</div>", unsafe_allow_html=True)
+                        prac_answer = st.text_area("Type response...", key=f"prac_answer_{psession['current_index']}", label_visibility="collapsed")
+                        if st.button("➤ Send", key=f"prac_send_{psession['current_index']}", type="primary"):
+                            if prac_answer.strip():
+                                st.session_state.practice_session = submit_answer(psession, prac_answer.strip())
+                                st.rerun()
+                            else:
+                                st.warning("Please type a response before sending.")
+                    else:
+                        st.success("Practice complete! Here's how you did:")
+                        render_interview_summary_charts(psession)
+
+                        prac_transcript_df = pd.DataFrame(psession["transcript"])
+                        if "feedback" in prac_transcript_df.columns:
+                            prac_transcript_df = prac_transcript_df[["question", "skill", "type", "answer", "mentions_skill", "feedback"]]
+                            prac_transcript_df.columns = ["Question", "Skill Tested", "Question Type", "Answer", "Relevant", "AI Feedback"]
+                        st.download_button(
+                            "⬇️ Download Practice Transcript",
+                            to_csv_bytes(prac_transcript_df),
+                            f"practice_transcript_{psession['candidate_name'].replace(' ', '_')}.csv",
+                            "text/csv",
+                            key="prac_download"
+                        )
+
+                        if st.button("🔄 Practice Again"):
+                            st.session_state.practice_started = False
+                            del st.session_state.practice_session
+                            st.rerun()
 
     else:  # Recruiter or Admin
         page_header("💼", "Job Postings", "Post a job requirement and rank all candidates against it", role)
@@ -1052,6 +1174,7 @@ elif st.session_state.page == "Interview Assistant":
                                 st.warning("Please type a response before sending.")
                     else:
                         st.success("Interview completed. Candidate responses stored for ATS review.")
+                        render_interview_summary_charts(session)
 
                         transcript_df = pd.DataFrame(session["transcript"])
                         if "feedback" in transcript_df.columns:
