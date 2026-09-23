@@ -12,8 +12,8 @@ from database import init_db, insert_candidate, get_all_candidates, clear_all_ca
 from jd_extractor import analyze_job_description
 from matching_engine import match_all_candidates, calculate_match, skill_gap_analysis
 from matching_accuracy_check import get_accuracy_results
-from interview_generator import generate_questions
-from interview_simulation import start_interview, get_opening_message, submit_answer, get_current_question, compute_interview_summary
+from interview_generator import generate_questions, QUESTION_TYPE_LABELS
+from interview_simulation import start_interview, get_opening_message, submit_answer, get_current_question, compute_interview_summary, get_progress
 from parser.pdf_reader import extract_text_from_pdf
 from parser.docx_reader import extract_text_from_docx
 
@@ -22,54 +22,76 @@ st.set_page_config(page_title="Recruitment Copilot", layout="wide", page_icon="�
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(180deg, #faf9ff 0%, #f7f5ff 100%);
+    background: radial-gradient(circle at 15% 0%, #fff7ed 0%, #fffaf3 45%, #fef3e2 100%);
 }
 .block-container {
     padding-top: 2.2rem;
 }
+h1, h2, h3, h4, h5, p, span, label, div {
+    color: #292524;
+}
 .skill-badge {
     display: inline-block;
-    background-color: #ede9fe;
-    color: #5b21b6;
+    background: rgba(249, 115, 22, 0.1);
+    color: #c2410c;
+    border: 1px solid rgba(249, 115, 22, 0.25);
     padding: 4px 10px;
     border-radius: 12px;
     margin: 3px 3px 3px 0;
     font-size: 13px;
     font-weight: 500;
 }
+.type-badge {
+    display: inline-block;
+    background: rgba(13, 148, 136, 0.1);
+    color: #0d9488;
+    border: 1px solid rgba(13, 148, 136, 0.25);
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-bottom: 8px;
+}
+.glass-card {
+    background: #ffffff;
+    border-radius: 16px;
+    border: 1px solid rgba(249, 115, 22, 0.12);
+    box-shadow: 0 4px 20px rgba(249, 115, 22, 0.07);
+}
 .metric-box {
     background: #ffffff;
     border-radius: 14px;
     padding: 18px 20px;
     text-align: center;
-    border: 1px solid #ece8ff;
-    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.06);
-    transition: box-shadow 0.2s ease, transform 0.2s ease;
+    border: 1px solid rgba(249, 115, 22, 0.12);
+    box-shadow: 0 3px 14px rgba(249, 115, 22, 0.07);
+    transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
 }
 .metric-box:hover {
-    box-shadow: 0 6px 18px rgba(124, 58, 237, 0.14);
+    box-shadow: 0 8px 24px rgba(249, 115, 22, 0.15);
     transform: translateY(-2px);
+    border-color: rgba(249, 115, 22, 0.3);
 }
 .metric-label {
-    font-size: 12px;
-    color: #6b7280;
+    font-size: 11px;
+    color: #78716c;
     margin-bottom: 4px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.06em;
 }
 .metric-value {
     font-size: 28px;
     font-weight: 800;
-    background: linear-gradient(135deg, #7c3aed, #ec4899);
+    background: linear-gradient(135deg, #f97316, #0d9488);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
 }
 .logo-badge {
     display: inline-block;
-    background: linear-gradient(135deg, #7c3aed, #ec4899);
+    background: linear-gradient(135deg, #f97316, #0d9488);
     color: white;
-    font-weight: 700;
+    font-weight: 800;
     padding: 8px 12px;
     border-radius: 8px;
     font-size: 14px;
@@ -78,12 +100,8 @@ st.markdown("""
     background: #ffffff;
     border-radius: 18px;
     padding: 26px;
-    border: 1px solid #ece8ff;
-    box-shadow: 0 4px 14px rgba(124, 58, 237, 0.08);
-    transition: box-shadow 0.2s ease;
-}
-.profile-card:hover {
-    box-shadow: 0 8px 24px rgba(124, 58, 237, 0.14);
+    border: 1px solid rgba(249, 115, 22, 0.12);
+    box-shadow: 0 4px 20px rgba(249, 115, 22, 0.08);
 }
 .avatar-circle {
     display: inline-flex;
@@ -92,9 +110,9 @@ st.markdown("""
     width: 36px;
     height: 36px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #7c3aed, #ec4899);
+    background: linear-gradient(135deg, #f97316, #0d9488);
     color: white;
-    font-weight: 700;
+    font-weight: 800;
     font-size: 14px;
     margin-right: 10px;
 }
@@ -105,22 +123,22 @@ st.markdown("""
     width: 54px;
     height: 54px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #7c3aed, #ec4899);
+    background: linear-gradient(135deg, #f97316, #0d9488);
     color: white;
-    font-weight: 700;
+    font-weight: 800;
     font-size: 19px;
     margin: 0 auto 10px auto;
 }
 .page-header {
-    background: linear-gradient(120deg, #ffffff 0%, #f5f2ff 100%);
-    border: 1px solid #ece8ff;
+    background: linear-gradient(120deg, #ffffff 0%, #fef3e2 100%);
+    border: 1px solid rgba(249, 115, 22, 0.12);
     border-radius: 18px;
     padding: 22px 28px;
     margin-bottom: 22px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 3px 12px rgba(124, 58, 237, 0.07);
+    box-shadow: 0 4px 20px rgba(249, 115, 22, 0.08);
 }
 .page-header-icon {
     font-size: 30px;
@@ -129,21 +147,21 @@ st.markdown("""
 .page-header-title {
     font-size: 24px;
     font-weight: 800;
-    color: #1f2937;
+    color: #1c1917;
     margin: 0;
 }
 .page-header-subtitle {
     font-size: 13px;
-    color: #6b7280;
+    color: #78716c;
     margin-top: 2px;
 }
 .role-pill {
-    background: linear-gradient(135deg, #7c3aed, #ec4899);
+    background: linear-gradient(135deg, #f97316, #0d9488);
     color: white;
     padding: 5px 14px;
     border-radius: 20px;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 800;
     letter-spacing: 0.02em;
     white-space: nowrap;
 }
@@ -152,15 +170,18 @@ st.markdown("""
     margin-right: 8px;
 }
 .chat-bubble-ai {
-    background: #f3f0ff;
+    background: rgba(13, 148, 136, 0.08);
+    border: 1px solid rgba(13, 148, 136, 0.2);
     border-radius: 14px 14px 14px 2px;
     padding: 10px 16px;
     margin-bottom: 8px;
     font-size: 14px;
     max-width: 90%;
+    color: #292524;
 }
 .chat-bubble-candidate {
-    background: #ede9fe;
+    background: rgba(249, 115, 22, 0.1);
+    border: 1px solid rgba(249, 115, 22, 0.22);
     border-radius: 14px 14px 2px 14px;
     padding: 10px 16px;
     margin-bottom: 4px;
@@ -168,13 +189,14 @@ st.markdown("""
     max-width: 90%;
     margin-left: auto;
     text-align: right;
+    color: #292524;
 }
 .relevance-tag-yes {
-    color: #16a34a;
+    color: #15803d;
     font-size: 12px;
     text-align: right;
     margin-bottom: 14px;
-    background: #f0fdf4;
+    background: rgba(34, 197, 94, 0.1);
     padding: 6px 10px;
     border-radius: 8px;
     max-width: 90%;
@@ -185,91 +207,101 @@ st.markdown("""
     font-size: 12px;
     text-align: right;
     margin-bottom: 14px;
-    background: #fffbeb;
+    background: rgba(251, 191, 36, 0.12);
     padding: 6px 10px;
     border-radius: 8px;
     max-width: 90%;
     margin-left: auto;
 }
-.status-pill-Applied { background:#e0e7ff; color:#3730a3; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
-.status-pill-Interview_Scheduled { background:#fef9c3; color:#854d0e; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
-.status-pill-Interview_Completed { background:#dbeafe; color:#1e40af; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
-.status-pill-Offer_Extended { background:#dcfce7; color:#166534; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
-.status-pill-Rejected { background:#fee2e2; color:#991b1b; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:600; }
+.status-pill-Applied { background:rgba(99,102,241,0.12); color:#4338ca; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(99,102,241,0.25); }
+.status-pill-Interview_Scheduled { background:rgba(251,191,36,0.15); color:#92400e; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(251,191,36,0.3); }
+.status-pill-Interview_Completed { background:rgba(13,148,136,0.12); color:#0f766e; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(13,148,136,0.25); }
+.status-pill-Offer_Extended { background:rgba(34,197,94,0.12); color:#15803d; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(34,197,94,0.25); }
+.status-pill-Rejected { background:rgba(248,113,113,0.12); color:#b91c1c; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(248,113,113,0.25); }
 
-/* Global: every bordered container gets the premium card look */
+/* Global: every bordered Streamlit container gets the soft card treatment */
 div[data-testid="stVerticalBlockBorderWrapper"] {
     border-radius: 18px !important;
-    border: 1px solid #ece8ff !important;
-    box-shadow: 0 4px 16px rgba(124, 58, 237, 0.08) !important;
+    border: 1px solid rgba(249, 115, 22, 0.12) !important;
+    background: #ffffff !important;
+    box-shadow: 0 4px 20px rgba(249, 115, 22, 0.07) !important;
 }
 
-/* Login page */
+/* Login page — kept bold/dark as an accent panel against the light page around it */
 .login-hero {
-    background: linear-gradient(150deg, #7c3aed 0%, #a855f7 55%, #ec4899 100%);
+    background: linear-gradient(150deg, #1c1917 0%, #7c2d12 45%, #0d9488 100%);
     border-radius: 24px;
     padding: 46px 40px;
-    color: white;
+    color: #fff7ed;
     display: flex;
     flex-direction: column;
     justify-content: center;
     height: 100%;
+    border: 1px solid rgba(0,0,0,0.05);
 }
 .login-hero-logo {
-    background: rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.15);
+    color: #fff7ed;
     width: 54px; height: 54px;
     border-radius: 14px;
     display: flex; align-items: center; justify-content: center;
-    font-weight: 800; font-size: 19px;
+    font-weight: 900; font-size: 19px;
     margin-bottom: 26px;
 }
-.login-hero h1 { font-size: 30px; font-weight: 800; line-height: 1.25; margin-bottom: 12px; }
-.login-hero p.tagline { font-size: 14.5px; opacity: 0.9; margin-bottom: 30px; line-height: 1.5; }
+.login-hero h1 { font-size: 30px; font-weight: 800; line-height: 1.25; margin-bottom: 12px; color: #fff7ed; }
+.login-hero p.tagline { font-size: 14.5px; opacity: 0.88; margin-bottom: 30px; line-height: 1.5; color: #fed7aa; }
 .login-feature { display: flex; align-items: flex-start; margin-bottom: 18px; }
 .login-feature-icon {
-    background: rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.12);
     width: 34px; height: 34px;
     border-radius: 10px;
     display: flex; align-items: center; justify-content: center;
     font-size: 16px; margin-right: 13px; flex-shrink: 0;
 }
-.login-feature-title { font-weight: 700; font-size: 13.5px; margin-bottom: 2px; }
-.login-feature-desc { font-size: 12px; opacity: 0.85; line-height: 1.4; }
-.login-stat-row { display: flex; gap: 26px; margin-top: 30px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.25); }
-.login-stat-num { font-size: 19px; font-weight: 800; }
-.login-stat-label { font-size: 11px; opacity: 0.8; }
+.login-feature-title { font-weight: 700; font-size: 13.5px; margin-bottom: 2px; color: #fff7ed; }
+.login-feature-desc { font-size: 12px; opacity: 0.82; line-height: 1.4; color: #fed7aa; }
+.login-stat-row { display: flex; gap: 26px; margin-top: 30px; padding-top: 22px; border-top: 1px solid rgba(255,255,255,0.18); }
+.login-stat-num { font-size: 19px; font-weight: 800; color: #fdba74; }
+.login-stat-label { font-size: 11px; opacity: 0.8; color: #fed7aa; }
 
 /* Inputs */
-div[data-testid="stTextInput"] input {
+div[data-testid="stTextInput"] input, div[data-testid="stTextArea"] textarea {
     border-radius: 10px !important;
-    border: 1.5px solid #e6e1ff !important;
+    border: 1.5px solid rgba(249, 115, 22, 0.2) !important;
     padding: 11px 14px !important;
-    background: #faf9ff !important;
+    background: #fffaf3 !important;
+    color: #292524 !important;
     font-size: 14px !important;
 }
-div[data-testid="stTextInput"] input:focus {
-    border-color: #7c3aed !important;
-    box-shadow: 0 0 0 3px rgba(124,58,237,0.13) !important;
+div[data-testid="stTextInput"] input:focus, div[data-testid="stTextArea"] textarea:focus {
+    border-color: #f97316 !important;
+    box-shadow: 0 0 0 3px rgba(249,115,22,0.15) !important;
 }
 
 /* Primary buttons */
 button[kind="primary"] {
-    background: linear-gradient(135deg, #7c3aed, #ec4899) !important;
+    background: linear-gradient(135deg, #f97316, #0d9488) !important;
+    color: #ffffff !important;
     border: none !important;
     border-radius: 10px !important;
-    font-weight: 700 !important;
+    font-weight: 800 !important;
     padding: 0.6rem 1rem !important;
-    box-shadow: 0 4px 14px rgba(124, 58, 237, 0.25) !important;
+    box-shadow: 0 4px 16px rgba(249, 115, 22, 0.25) !important;
     transition: transform 0.15s ease, box-shadow 0.15s ease !important;
 }
 button[kind="primary"]:hover {
     transform: translateY(-1px);
-    box-shadow: 0 6px 20px rgba(124, 58, 237, 0.35) !important;
+    box-shadow: 0 6px 22px rgba(249, 115, 22, 0.35) !important;
+}
+.stProgress > div > div > div > div {
+    background: linear-gradient(135deg, #f97316, #0d9488) !important;
 }
 </style>
 """, unsafe_allow_html=True)
 
 init_db()
+
+QUESTION_TYPE_OPTIONS = ["technical", "behavioral", "situational", "hr", "aptitude"]
 
 def get_initials(name):
     if not name:
@@ -318,8 +350,14 @@ def extract_jd_text_from_file(uploaded_file):
         return extract_text_from_docx(save_path)
     return ""
 
+def render_interview_progress(session):
+    """Pictorial progress bar shown during an in-progress interview."""
+    done, total, pct = get_progress(session)
+    st.progress(pct / 100 if total else 0)
+    st.caption(f"Question {min(done + 1, total)} of {total} · {pct}% complete")
+
 def render_interview_summary_charts(session):
-    """Shared pictorial summary (gauge + donut) shown after any interview completes."""
+    """Pictorial summary (gauge + donut) shown after any interview completes."""
     summary = compute_interview_summary(session)
 
     chart_col1, chart_col2 = st.columns(2)
@@ -329,19 +367,20 @@ def render_interview_summary_charts(session):
             fig_gauge = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=summary["technical_relevant_pct"],
-                number={"suffix": "%", "font": {"size": 30, "color": "#7c3aed"}},
-                title={"text": "Technical Answer Relevance", "font": {"size": 13}},
+                number={"suffix": "%", "font": {"size": 30, "color": "#f97316"}},
+                title={"text": "Technical Answer Relevance", "font": {"size": 13, "color": "#292524"}},
                 gauge={
-                    "axis": {"range": [0, 100]},
-                    "bar": {"color": "#7c3aed"},
+                    "axis": {"range": [0, 100], "tickcolor": "#a8a29e"},
+                    "bar": {"color": "#f97316"},
+                    "bgcolor": "rgba(0,0,0,0)",
                     "steps": [
-                        {"range": [0, 50], "color": "#fee2e2"},
-                        {"range": [50, 80], "color": "#fef9c3"},
-                        {"range": [80, 100], "color": "#dcfce7"},
+                        {"range": [0, 50], "color": "rgba(248,113,113,0.18)"},
+                        {"range": [50, 80], "color": "rgba(251,191,36,0.18)"},
+                        {"range": [80, 100], "color": "rgba(34,197,94,0.18)"},
                     ],
                 },
             ))
-            fig_gauge.update_layout(height=220, margin=dict(t=40, b=10, l=15, r=15), paper_bgcolor="rgba(0,0,0,0)")
+            fig_gauge.update_layout(height=220, margin=dict(t=40, b=10, l=15, r=15), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#292524"})
             st.plotly_chart(fig_gauge, use_container_width=True)
         else:
             st.caption("No technical questions in this session to score.")
@@ -350,14 +389,15 @@ def render_interview_summary_charts(session):
         type_counts = summary["type_counts"]
         if type_counts:
             fig_donut = go.Figure(go.Pie(
-                labels=[t.capitalize() for t in type_counts.keys()],
+                labels=[QUESTION_TYPE_LABELS.get(t, t.capitalize()) for t in type_counts.keys()],
                 values=list(type_counts.values()),
                 hole=0.55,
-                marker=dict(colors=["#7c3aed", "#a78bfa", "#f0abfc"]),
+                marker=dict(colors=["#f97316", "#0d9488", "#a78bfa", "#fb923c", "#34d399"]),
                 textinfo="percent+label"
             ))
             fig_donut.update_layout(title="Question Mix", height=220, showlegend=False,
-                                     margin=dict(t=40, b=10, l=15, r=15), paper_bgcolor="rgba(0,0,0,0)")
+                                     margin=dict(t=40, b=10, l=15, r=15), paper_bgcolor="rgba(0,0,0,0)",
+                                     font={"color": "#292524"})
             st.plotly_chart(fig_donut, use_container_width=True)
 
 # ---- Auth state ----
@@ -396,14 +436,14 @@ def show_login_page():
             <div class="login-feature">
                 <div class="login-feature-icon">🎙️</div>
                 <div>
-                    <div class="login-feature-title">Interview Assistant</div>
-                    <div class="login-feature-desc">Generate role-specific questions and simulate interviews with ATS tracking.</div>
+                    <div class="login-feature-title">5-Type Interview Assistant</div>
+                    <div class="login-feature-desc">Technical, Behavioral, Situational, HR, and Aptitude rounds with live AI feedback.</div>
                 </div>
             </div>
             <div class="login-stat-row">
                 <div><div class="login-stat-num">100%</div><div class="login-stat-label">Extraction Accuracy</div></div>
                 <div><div class="login-stat-num">≥85%</div><div class="login-stat-label">Match Accuracy</div></div>
-                <div><div class="login-stat-num">3</div><div class="login-stat-label">User Roles</div></div>
+                <div><div class="login-stat-num">5</div><div class="login-stat-label">Question Types</div></div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -495,7 +535,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("Recruitment Copilot · v3.2")
+    st.caption("Recruitment Copilot · v4.1")
 
 all_candidates = get_all_candidates()
 my_candidates = all_candidates[all_candidates["uploaded_by"] == username] if not all_candidates.empty else all_candidates
@@ -558,19 +598,20 @@ if st.session_state.page == "Dashboard":
                 fig = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=completeness,
-                    number={"suffix": "%", "font": {"size": 32, "color": "#7c3aed"}},
-                    title={"text": "Profile Completeness", "font": {"size": 14}},
+                    number={"suffix": "%", "font": {"size": 32, "color": "#f97316"}},
+                    title={"text": "Profile Completeness", "font": {"size": 14, "color": "#292524"}},
                     gauge={
-                        "axis": {"range": [0, 100]},
-                        "bar": {"color": "#7c3aed"},
+                        "axis": {"range": [0, 100], "tickcolor": "#a8a29e"},
+                        "bar": {"color": "#f97316"},
+                        "bgcolor": "rgba(0,0,0,0)",
                         "steps": [
-                            {"range": [0, 60], "color": "#fee2e2"},
-                            {"range": [60, 90], "color": "#fef9c3"},
-                            {"range": [90, 100], "color": "#dcfce7"},
+                            {"range": [0, 60], "color": "rgba(248,113,113,0.18)"},
+                            {"range": [60, 90], "color": "rgba(251,191,36,0.18)"},
+                            {"range": [90, 100], "color": "rgba(34,197,94,0.18)"},
                         ],
                     },
                 ))
-                fig.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)")
+                fig.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#292524"})
                 st.plotly_chart(fig, use_container_width=True)
 
             st.markdown("---")
@@ -630,19 +671,20 @@ if st.session_state.page == "Dashboard":
                 st.subheader("📋 Strong Match Count by Job")
                 summary_df = pd.DataFrame(rows)
                 fig_pipeline = px.bar(summary_df, x="Job Title", y="Strong Matches (≥85%)",
-                                       color="Strong Matches (≥85%)", color_continuous_scale=["#ddd6fe", "#7c3aed"],
+                                       color="Strong Matches (≥85%)", color_continuous_scale=["#fed7aa", "#f97316"],
                                        text="Strong Matches (≥85%)")
                 fig_pipeline.update_layout(height=340, showlegend=False, coloraxis_showscale=False,
-                                            margin=dict(t=20, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                                            margin=dict(t=20, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                            font={"color": "#292524"})
                 st.plotly_chart(fig_pipeline, use_container_width=True)
 
                 table_html = "<table style='width:100%; border-collapse: collapse;'>"
-                table_html += "<tr style='text-align:left; border-bottom: 2px solid #ece8ff;'>"
+                table_html += "<tr style='text-align:left; border-bottom: 2px solid rgba(41,37,36,0.12);'>"
                 for col in summary_df.columns:
                     table_html += f"<th style='padding:8px;'>{col}</th>"
                 table_html += "</tr>"
                 for _, row in summary_df.iterrows():
-                    table_html += "<tr style='border-bottom: 1px solid #f0edff;'>"
+                    table_html += "<tr style='border-bottom: 1px solid rgba(41,37,36,0.06);'>"
                     for val in row:
                         table_html += f"<td style='padding:8px;'>{val}</td>"
                     table_html += "</tr>"
@@ -657,7 +699,7 @@ if st.session_state.page == "Dashboard":
                         with st.container(border=True):
                             st.markdown(f"<span class='leaderboard-rank'>{medals[i]}</span> **{entry['name']}**", unsafe_allow_html=True)
                             st.caption(f"Best fit for: {entry['job_title']}")
-                            st.markdown(f"<span style='color:#22c55e; font-weight:800; font-size:20px;'>{entry['score']}%</span>", unsafe_allow_html=True)
+                            st.markdown(f"<span style='color:#15803d; font-weight:800; font-size:20px;'>{entry['score']}%</span>", unsafe_allow_html=True)
                 else:
                     st.info("No matches computed yet.")
 
@@ -804,7 +846,7 @@ elif st.session_state.page == "Candidates":
                             initials = get_initials(cand["name"])
                             st.markdown(f'<div class="avatar-circle-lg">{initials}</div>', unsafe_allow_html=True)
                             st.markdown(f"<p style='text-align:center; font-weight:700; margin-bottom:2px;'>{cand['name']}</p>", unsafe_allow_html=True)
-                            st.markdown(f"<p style='text-align:center; font-size:12px; color:#6b7280; margin-bottom:10px;'>{cand['email']}</p>", unsafe_allow_html=True)
+                            st.markdown(f"<p style='text-align:center; font-size:12px; color:#78716c; margin-bottom:10px;'>{cand['email']}</p>", unsafe_allow_html=True)
                             top_skills = cand["skills"][:3]
                             if top_skills:
                                 badges = "".join([f'<span class="skill-badge">{s}</span>' for s in top_skills])
@@ -844,7 +886,7 @@ elif st.session_state.page == "Job Postings":
                         score, matched = calculate_match(my_latest.to_dict(), job)
                         gap = skill_gap_analysis(my_latest.to_dict(), job)
 
-                        color = "#22c55e" if score >= 85 else "#f59e0b" if score >= 60 else "#ef4444"
+                        color = "#15803d" if score >= 85 else "#b45309" if score >= 60 else "#b91c1c"
                         st.markdown(f"<h2 style='color:{color}'>{score}% Match</h2>", unsafe_allow_html=True)
                         if matched:
                             badges = "".join([f'<span class="skill-badge">{s}</span>' for s in matched])
@@ -869,16 +911,22 @@ elif st.session_state.page == "Job Postings":
                 prac_job_title = st.selectbox("Job Position", all_jobs["title"].tolist(), key="prac_job")
                 prac_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="prac_difficulty")
 
-                prac_qcol1, prac_qcol2, prac_qcol3 = st.columns(3)
-                with prac_qcol1:
+                st.caption("Choose how many questions of each type:")
+                prac_row1 = st.columns(3)
+                with prac_row1[0]:
                     prac_num_tech = st.number_input("Technical", min_value=0, max_value=20, value=2, step=1, key="prac_num_tech")
-                with prac_qcol2:
+                with prac_row1[1]:
                     prac_num_beh = st.number_input("Behavioral", min_value=0, max_value=20, value=1, step=1, key="prac_num_beh")
-                with prac_qcol3:
+                with prac_row1[2]:
+                    prac_num_sit = st.number_input("Situational", min_value=0, max_value=20, value=0, step=1, key="prac_num_sit")
+                prac_row2 = st.columns(3)
+                with prac_row2[0]:
+                    prac_num_hr = st.number_input("HR / Culture Fit", min_value=0, max_value=20, value=0, step=1, key="prac_num_hr")
+                with prac_row2[1]:
                     prac_num_apt = st.number_input("Aptitude", min_value=0, max_value=20, value=0, step=1, key="prac_num_apt")
 
                 if st.button("▶️ Start Practice", type="primary"):
-                    if prac_num_tech + prac_num_beh + prac_num_apt == 0:
+                    if prac_num_tech + prac_num_beh + prac_num_sit + prac_num_hr + prac_num_apt == 0:
                         st.error("Add at least one question of any type.")
                     else:
                         prac_job = all_jobs[all_jobs["title"] == prac_job_title].iloc[0].to_dict()
@@ -886,6 +934,7 @@ elif st.session_state.page == "Job Postings":
                         st.session_state.practice_session = start_interview(
                             my_latest["name"], prac_job,
                             num_technical=int(prac_num_tech), num_behavioral=int(prac_num_beh),
+                            num_situational=int(prac_num_sit), num_hr=int(prac_num_hr),
                             num_aptitude=int(prac_num_apt), difficulty=prac_difficulty
                         )
                         st.session_state.practice_started = True
@@ -896,6 +945,8 @@ elif st.session_state.page == "Job Postings":
                     st.markdown(f"<div class='chat-bubble-ai'>{get_opening_message(psession['candidate_name'], psession['job_title'])}</div>", unsafe_allow_html=True)
 
                     for turn in psession["transcript"]:
+                        type_label = QUESTION_TYPE_LABELS.get(turn.get("type", "technical"), "Question")
+                        st.markdown(f"<span class='type-badge'>{type_label}</span>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-ai'>{turn['question']}</div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-candidate'>{turn['answer']}</div>", unsafe_allow_html=True)
                         tag_class = "relevance-tag-yes" if turn.get("mentions_skill") else "relevance-tag-no"
@@ -906,6 +957,9 @@ elif st.session_state.page == "Job Postings":
 
                     prac_current_q = get_current_question(psession)
                     if prac_current_q:
+                        render_interview_progress(psession)
+                        current_type = psession["questions"][psession["current_index"]].get("type", "technical")
+                        st.markdown(f"<span class='type-badge'>{QUESTION_TYPE_LABELS.get(current_type, 'Question')}</span>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-ai'>{prac_current_q}</div>", unsafe_allow_html=True)
                         prac_answer = st.text_area("Type response...", key=f"prac_answer_{psession['current_index']}", label_visibility="collapsed")
                         if st.button("➤ Send", key=f"prac_send_{psession['current_index']}", type="primary"):
@@ -991,20 +1045,21 @@ elif st.session_state.page == "Job Postings":
                     fig_match_gauge = go.Figure(go.Indicator(
                         mode="gauge+number",
                         value=strong_match_pct,
-                        number={"suffix": "%", "font": {"size": 36, "color": "#7c3aed"}},
-                        title={"text": f"% of Candidates ≥85% Match — {selected_title}", "font": {"size": 14}},
+                        number={"suffix": "%", "font": {"size": 36, "color": "#f97316"}},
+                        title={"text": f"% of Candidates ≥85% Match — {selected_title}", "font": {"size": 14, "color": "#292524"}},
                         gauge={
-                            "axis": {"range": [0, 100]},
-                            "bar": {"color": "#7c3aed"},
+                            "axis": {"range": [0, 100], "tickcolor": "#a8a29e"},
+                            "bar": {"color": "#f97316"},
+                            "bgcolor": "rgba(0,0,0,0)",
                             "steps": [
-                                {"range": [0, 50], "color": "#fee2e2"},
-                                {"range": [50, 85], "color": "#fef9c3"},
-                                {"range": [85, 100], "color": "#dcfce7"},
+                                {"range": [0, 50], "color": "rgba(248,113,113,0.18)"},
+                                {"range": [50, 85], "color": "rgba(251,191,36,0.18)"},
+                                {"range": [85, 100], "color": "rgba(34,197,94,0.18)"},
                             ],
-                            "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 85},
+                            "threshold": {"line": {"color": "#0d9488", "width": 4}, "thickness": 0.8, "value": 85},
                         },
                     ))
-                    fig_match_gauge.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)")
+                    fig_match_gauge.update_layout(height=260, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#292524"})
                     st.plotly_chart(fig_match_gauge, use_container_width=True)
 
                     st.markdown("---")
@@ -1033,21 +1088,22 @@ elif st.session_state.page == "Job Postings":
                         fig_missing = px.bar(
                             missing_df.sort_values("Candidates Missing It"),
                             x="Candidates Missing It", y="Skill", orientation="h",
-                            color="Candidates Missing It", color_continuous_scale=["#fed7aa", "#f59e0b", "#ea580c"],
+                            color="Candidates Missing It", color_continuous_scale=["#fed7aa", "#f97316"],
                             text="Candidates Missing It", title=f"Most Common Skill Gaps — {selected_title}"
                         )
                         fig_missing.update_traces(textposition="outside")
                         fig_missing.update_layout(height=280, showlegend=False, coloraxis_showscale=False,
-                                                   margin=dict(t=50, b=10, l=10, r=30), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                                                   margin=dict(t=50, b=10, l=10, r=30), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                                   font={"color": "#292524"})
                         st.plotly_chart(fig_missing, use_container_width=True)
 
                         table_html = "<table style='width:100%; border-collapse: collapse;'>"
-                        table_html += "<tr style='text-align:left; border-bottom: 2px solid #ece8ff;'>"
+                        table_html += "<tr style='text-align:left; border-bottom: 2px solid rgba(41,37,36,0.12);'>"
                         for col in report_df.columns:
                             table_html += f"<th style='padding:8px;'>{col}</th>"
                         table_html += "</tr>"
                         for _, row in report_df.iterrows():
-                            table_html += "<tr style='border-bottom: 1px solid #f0edff;'>"
+                            table_html += "<tr style='border-bottom: 1px solid rgba(41,37,36,0.06);'>"
                             for val in row:
                                 table_html += f"<td style='padding:8px;'>{val}</td>"
                             table_html += "</tr>"
@@ -1067,7 +1123,7 @@ elif st.session_state.page == "Job Postings":
 
                     for r in results:
                         score = r["hiring_score"]
-                        color = "#22c55e" if score >= 85 else "#f59e0b" if score >= 60 else "#ef4444"
+                        color = "#15803d" if score >= 85 else "#b45309" if score >= 60 else "#b91c1c"
                         rank_badge = {1: "🥇", 2: "🥈", 3: "🥉"}.get(r["rank"], f"#{r['rank']}")
                         with st.container(border=True):
                             mcol1, mcol2 = st.columns([3, 1])
@@ -1081,7 +1137,7 @@ elif st.session_state.page == "Job Postings":
                                     for rec in r["recommendations"]:
                                         st.caption(f"💡 {rec}")
                             with mcol2:
-                                st.markdown(f"<div style='text-align:center;'><span style='font-size:32px; font-weight:800; color:{color}'>{score}%</span><br><span style='font-size:12px; color:#6b7280;'>Match Score</span></div>", unsafe_allow_html=True)
+                                st.markdown(f"<div style='text-align:center;'><span style='font-size:32px; font-weight:800; color:{color}'>{score}%</span><br><span style='font-size:12px; color:#78716c;'>Match Score</span></div>", unsafe_allow_html=True)
 
 # =========================================================
 # PAGE: Interview Assistant (Recruiter/Admin only)
@@ -1099,7 +1155,8 @@ elif st.session_state.page == "Interview Assistant":
             else:
                 job_titles = all_jobs["title"].tolist()
                 gen_job_title = st.selectbox("Job Position", job_titles, key="gen_job_select")
-                q_type = st.selectbox("Question Type", ["technical", "behavioral", "aptitude"], key="gen_qtype")
+                q_type = st.selectbox("Question Type", QUESTION_TYPE_OPTIONS,
+                                       format_func=lambda t: QUESTION_TYPE_LABELS.get(t, t.capitalize()), key="gen_qtype")
                 gen_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="gen_difficulty")
                 num_q = st.number_input("Number of questions", min_value=1, max_value=50, value=3, step=1, key="gen_numq")
 
@@ -1127,22 +1184,29 @@ elif st.session_state.page == "Interview Assistant":
                 sim_job_title = st.selectbox("Job Position", all_jobs["title"].tolist(), key="sim_job")
                 sim_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="sim_difficulty")
 
-                sim_qcol1, sim_qcol2, sim_qcol3 = st.columns(3)
-                with sim_qcol1:
+                st.caption("Choose how many questions of each type:")
+                sim_row1 = st.columns(3)
+                with sim_row1[0]:
                     sim_num_tech = st.number_input("Technical", min_value=0, max_value=20, value=2, step=1, key="sim_num_tech")
-                with sim_qcol2:
+                with sim_row1[1]:
                     sim_num_beh = st.number_input("Behavioral", min_value=0, max_value=20, value=1, step=1, key="sim_num_beh")
-                with sim_qcol3:
+                with sim_row1[2]:
+                    sim_num_sit = st.number_input("Situational", min_value=0, max_value=20, value=0, step=1, key="sim_num_sit")
+                sim_row2 = st.columns(3)
+                with sim_row2[0]:
+                    sim_num_hr = st.number_input("HR / Culture Fit", min_value=0, max_value=20, value=0, step=1, key="sim_num_hr")
+                with sim_row2[1]:
                     sim_num_apt = st.number_input("Aptitude", min_value=0, max_value=20, value=0, step=1, key="sim_num_apt")
 
                 if st.button("▶️ Start Interview"):
-                    if sim_num_tech + sim_num_beh + sim_num_apt == 0:
+                    if sim_num_tech + sim_num_beh + sim_num_sit + sim_num_hr + sim_num_apt == 0:
                         st.error("Add at least one question of any type.")
                     else:
                         sim_job = all_jobs[all_jobs["title"] == sim_job_title].iloc[0].to_dict()
                         st.session_state.interview_session = start_interview(
                             sim_candidate_name, sim_job,
                             num_technical=int(sim_num_tech), num_behavioral=int(sim_num_beh),
+                            num_situational=int(sim_num_sit), num_hr=int(sim_num_hr),
                             num_aptitude=int(sim_num_apt), difficulty=sim_difficulty
                         )
                         st.session_state.interview_started = True
@@ -1153,6 +1217,8 @@ elif st.session_state.page == "Interview Assistant":
                     st.markdown(f"<div class='chat-bubble-ai'>{get_opening_message(session['candidate_name'], session['job_title'])}</div>", unsafe_allow_html=True)
 
                     for turn in session["transcript"]:
+                        type_label = QUESTION_TYPE_LABELS.get(turn.get("type", "technical"), "Question")
+                        st.markdown(f"<span class='type-badge'>{type_label}</span>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-ai'>{turn['question']}</div>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-candidate'>{turn['answer']}</div>", unsafe_allow_html=True)
                         tag_class = "relevance-tag-yes" if turn.get("mentions_skill") else "relevance-tag-no"
@@ -1164,6 +1230,9 @@ elif st.session_state.page == "Interview Assistant":
 
                     current_q = get_current_question(session)
                     if current_q:
+                        render_interview_progress(session)
+                        current_type = session["questions"][session["current_index"]].get("type", "technical")
+                        st.markdown(f"<span class='type-badge'>{QUESTION_TYPE_LABELS.get(current_type, 'Question')}</span>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-ai'>{current_q}</div>", unsafe_allow_html=True)
                         answer = st.text_area("Type response...", key=f"answer_{session['current_index']}", label_visibility="collapsed")
                         if st.button("➤ Send", key=f"send_{session['current_index']}", type="primary"):
@@ -1249,20 +1318,21 @@ elif st.session_state.page == "Analytics":
             fig_gauge = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=accuracy,
-                number={"suffix": "%", "font": {"size": 40, "color": "#7c3aed"}},
-                title={"text": "Extraction Accuracy vs 95% Target", "font": {"size": 14}},
+                number={"suffix": "%", "font": {"size": 40, "color": "#f97316"}},
+                title={"text": "Extraction Accuracy vs 95% Target", "font": {"size": 14, "color": "#292524"}},
                 gauge={
-                    "axis": {"range": [0, 100]},
-                    "bar": {"color": "#7c3aed"},
+                    "axis": {"range": [0, 100], "tickcolor": "#a8a29e"},
+                    "bar": {"color": "#f97316"},
+                    "bgcolor": "rgba(0,0,0,0)",
                     "steps": [
-                        {"range": [0, 70], "color": "#fee2e2"},
-                        {"range": [70, 95], "color": "#fef9c3"},
-                        {"range": [95, 100], "color": "#dcfce7"},
+                        {"range": [0, 70], "color": "rgba(248,113,113,0.18)"},
+                        {"range": [70, 95], "color": "rgba(251,191,36,0.18)"},
+                        {"range": [95, 100], "color": "rgba(34,197,94,0.18)"},
                     ],
-                    "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 95},
+                    "threshold": {"line": {"color": "#0d9488", "width": 4}, "thickness": 0.8, "value": 95},
                 },
             ))
-            fig_gauge.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)")
+            fig_gauge.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#292524"})
             st.plotly_chart(fig_gauge, use_container_width=True)
 
         with skills_col:
@@ -1276,12 +1346,13 @@ elif st.session_state.page == "Analytics":
 
                 fig_skills = px.bar(
                     df_skills, x="Candidates", y="Skill", orientation="h",
-                    color="Candidates", color_continuous_scale=["#ddd6fe", "#7c3aed", "#4c1d95"],
+                    color="Candidates", color_continuous_scale=["#fed7aa", "#f97316", "#c2410c"],
                     text="Candidates", title="Top Skills Across All Candidates"
                 )
                 fig_skills.update_traces(textposition="outside")
                 fig_skills.update_layout(height=280, showlegend=False, coloraxis_showscale=False,
-                                          margin=dict(t=50, b=10, l=10, r=30), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                                          margin=dict(t=50, b=10, l=10, r=30), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                          font={"color": "#292524"})
                 st.plotly_chart(fig_skills, use_container_width=True)
             else:
                 st.info("No skills extracted yet.")
@@ -1298,31 +1369,32 @@ elif st.session_state.page == "Analytics":
             fig_match_acc = go.Figure(go.Indicator(
                 mode="gauge+number",
                 value=match_accuracy,
-                number={"suffix": "%", "font": {"size": 40, "color": "#7c3aed"}},
-                title={"text": "Matching Accuracy vs 85% Target", "font": {"size": 14}},
+                number={"suffix": "%", "font": {"size": 40, "color": "#f97316"}},
+                title={"text": "Matching Accuracy vs 85% Target", "font": {"size": 14, "color": "#292524"}},
                 gauge={
-                    "axis": {"range": [0, 100]},
-                    "bar": {"color": "#7c3aed"},
+                    "axis": {"range": [0, 100], "tickcolor": "#a8a29e"},
+                    "bar": {"color": "#f97316"},
+                    "bgcolor": "rgba(0,0,0,0)",
                     "steps": [
-                        {"range": [0, 60], "color": "#fee2e2"},
-                        {"range": [60, 85], "color": "#fef9c3"},
-                        {"range": [85, 100], "color": "#dcfce7"},
+                        {"range": [0, 60], "color": "rgba(248,113,113,0.18)"},
+                        {"range": [60, 85], "color": "rgba(251,191,36,0.18)"},
+                        {"range": [85, 100], "color": "rgba(34,197,94,0.18)"},
                     ],
-                    "threshold": {"line": {"color": "#ec4899", "width": 4}, "thickness": 0.8, "value": 85},
+                    "threshold": {"line": {"color": "#0d9488", "width": 4}, "thickness": 0.8, "value": 85},
                 },
             ))
-            fig_match_acc.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)")
+            fig_match_acc.update_layout(height=280, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#292524"})
             st.plotly_chart(fig_match_acc, use_container_width=True)
 
         with match_table_col:
             match_df = pd.DataFrame(match_test_rows)
             table_html = "<table style='width:100%; border-collapse: collapse; font-size:13px;'>"
-            table_html += "<tr style='text-align:left; border-bottom: 2px solid #ece8ff;'>"
+            table_html += "<tr style='text-align:left; border-bottom: 2px solid rgba(41,37,36,0.12);'>"
             for col in match_df.columns:
                 table_html += f"<th style='padding:6px;'>{col}</th>"
             table_html += "</tr>"
             for _, row in match_df.iterrows():
-                table_html += "<tr style='border-bottom: 1px solid #f0edff;'>"
+                table_html += "<tr style='border-bottom: 1px solid rgba(41,37,36,0.06);'>"
                 for val in row:
                     table_html += f"<td style='padding:6px;'>{val}</td>"
                 table_html += "</tr>"
@@ -1342,14 +1414,17 @@ elif st.session_state.page == "Analytics":
                 r=field_rates + [field_rates[0]],
                 theta=[f.capitalize() for f in FIELDS] + [FIELDS[0].capitalize()],
                 fill="toself",
-                fillcolor="rgba(124, 58, 237, 0.25)",
-                line=dict(color="#7c3aed", width=2),
+                fillcolor="rgba(249, 115, 22, 0.2)",
+                line=dict(color="#f97316", width=2),
                 name="Extraction rate"
             ))
             fig_radar.update_layout(
-                polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                polar=dict(radialaxis=dict(visible=True, range=[0, 100], color="#a8a29e"),
+                           angularaxis=dict(color="#292524"),
+                           bgcolor="rgba(0,0,0,0)"),
                 title="Field Extraction Coverage (%)",
-                height=320, margin=dict(t=50, b=10, l=40, r=40), paper_bgcolor="rgba(0,0,0,0)"
+                height=320, margin=dict(t=50, b=10, l=40, r=40), paper_bgcolor="rgba(0,0,0,0)",
+                font={"color": "#292524"}
             )
             st.plotly_chart(fig_radar, use_container_width=True)
 
@@ -1361,11 +1436,12 @@ elif st.session_state.page == "Analytics":
                 labels=["Has certifications", "No certifications"],
                 values=[has_cert, no_cert],
                 hole=0.55,
-                marker=dict(colors=["#a78bfa", "#f3f0ff"]),
+                marker=dict(colors=["#0d9488", "rgba(41,37,36,0.08)"]),
                 textinfo="percent+label"
             ))
             fig_donut.update_layout(title="Certification Coverage", height=320,
-                                     showlegend=False, margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)")
+                                     showlegend=False, margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)",
+                                     font={"color": "#292524"})
             st.plotly_chart(fig_donut, use_container_width=True)
 
         if "created_at" in all_candidates.columns:
@@ -1378,12 +1454,13 @@ elif st.session_state.page == "Analytics":
             fig_trend.add_trace(go.Scatter(
                 x=daily_counts["Date"].astype(str), y=daily_counts["Cumulative"],
                 fill="tozeroy", mode="lines+markers",
-                line=dict(color="#ec4899", width=3),
-                fillcolor="rgba(236, 72, 153, 0.15)",
+                line=dict(color="#0d9488", width=3),
+                fillcolor="rgba(13, 148, 136, 0.15)",
                 name="Total resumes processed"
             ))
             fig_trend.update_layout(title="Cumulative Resumes Processed Over Time",
-                                     height=280, margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+                                     height=280, margin=dict(t=50, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                     font={"color": "#292524"})
             st.plotly_chart(fig_trend, use_container_width=True)
 
 # =========================================================
@@ -1400,12 +1477,12 @@ elif st.session_state.page == "Manage Users":
         users_df.columns = ["Username", "Role"]
 
         table_html = "<table style='width:100%; border-collapse: collapse;'>"
-        table_html += "<tr style='text-align:left; border-bottom: 2px solid #ece8ff;'>"
+        table_html += "<tr style='text-align:left; border-bottom: 2px solid rgba(41,37,36,0.12);'>"
         for col in users_df.columns:
             table_html += f"<th style='padding:8px;'>{col}</th>"
         table_html += "</tr>"
         for _, row in users_df.iterrows():
-            table_html += "<tr style='border-bottom: 1px solid #f0edff;'>"
+            table_html += "<tr style='border-bottom: 1px solid rgba(41,37,36,0.06);'>"
             for val in row:
                 table_html += f"<td style='padding:8px;'>{val}</td>"
             table_html += "</tr>"
@@ -1416,6 +1493,6 @@ elif st.session_state.page == "Manage Users":
         st.markdown("---")
         st.subheader("User Breakdown")
         fig_users = px.pie(values=role_counts.values, names=role_counts.index, hole=0.5,
-                            color_discrete_sequence=["#7c3aed", "#a78bfa", "#ec4899"])
-        fig_users.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)")
+                            color_discrete_sequence=["#f97316", "#0d9488", "#a78bfa"])
+        fig_users.update_layout(height=300, margin=dict(t=10, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#292524"})
         st.plotly_chart(fig_users, use_container_width=True)

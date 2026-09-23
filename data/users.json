@@ -14,5 +14,9 @@
   "venu": {
     "password": "b896a2f80bd20d43aa905378e7a8125213e5951b1ad726539db443390c70c2d3",
     "role": "Recruiter"
+  },
+  "pooja": {
+    "password": "0962ef04822f8ca5b341bcbcd783049a454e96b39d23fe9e18200a3edb400bae",
+    "role": "Admin"
   }
 }

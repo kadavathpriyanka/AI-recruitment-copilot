@@ -29,7 +29,28 @@ BEHAVIORAL_TEMPLATES = [
     "Describe a time you had to learn a new skill quickly for a project.",
 ]
 
-# Aptitude questions have a real, checkable answer — unlike technical/behavioral ones.
+# Situational: hypothetical "what would you do" scenarios, not tied to a past event.
+SITUATIONAL_TEMPLATES = [
+    "You're two days from a deadline and discover a major bug in a core feature. What do you do?",
+    "A teammate isn't pulling their weight on a shared project. How would you handle it?",
+    "You're asked to take on a task outside your expertise with no extra time given. How do you approach it?",
+    "Your manager asks you to cut corners on testing to ship faster. How do you respond?",
+    "You realize mid-project that the requirements were misunderstood from the start. What's your next move?",
+    "A client is unhappy with progress but the delay wasn't your team's fault. How do you handle the conversation?",
+]
+
+# HR / Culture Fit: standard opening-round questions about motivation and fit.
+HR_CULTURE_TEMPLATES = [
+    "Why do you want to work here, and why this role specifically?",
+    "Where do you see yourself in the next 3-5 years?",
+    "What kind of work environment helps you do your best work?",
+    "Describe your ideal team dynamic.",
+    "What are you looking for in your next role that you didn't have in a previous one?",
+    "How do you handle feedback or criticism from a manager?",
+    "What motivates you day to day in your work?",
+]
+
+# Aptitude questions have a real, checkable answer — unlike other question types.
 APTITUDE_QA = [
     {"question": "If a train travels 60 km in 45 minutes, what is its speed in km/h?",
      "answer": "80 km/h. Speed = distance / time = 60 km / (45/60 h) = 60 / 0.75 = 80 km/h."},
@@ -59,6 +80,15 @@ DIFFICULTY_TEMPLATES = {
     "Advanced": ADVANCED_TECHNICAL_TEMPLATES,
 }
 
+QUESTION_TYPES = ["technical", "behavioral", "situational", "hr", "aptitude"]
+QUESTION_TYPE_LABELS = {
+    "technical": "Technical",
+    "behavioral": "Behavioral",
+    "situational": "Situational",
+    "hr": "HR / Culture Fit",
+    "aptitude": "Aptitude",
+}
+
 def _pick_items(items, num_questions):
     """Pick num_questions items. Uses no-repeat sampling when possible,
     otherwise cycles through with repeats (shuffled) once the pool runs out."""
@@ -79,6 +109,14 @@ def generate_questions(job, question_type="technical", num_questions=3, difficul
     if question_type == "behavioral":
         chosen = _pick_items(BEHAVIORAL_TEMPLATES, num_questions)
         return [{"question": q, "skill": None, "type": "behavioral", "answer": None} for q in chosen]
+
+    if question_type == "situational":
+        chosen = _pick_items(SITUATIONAL_TEMPLATES, num_questions)
+        return [{"question": q, "skill": None, "type": "situational", "answer": None} for q in chosen]
+
+    if question_type == "hr":
+        chosen = _pick_items(HR_CULTURE_TEMPLATES, num_questions)
+        return [{"question": q, "skill": None, "type": "hr", "answer": None} for q in chosen]
 
     if question_type == "aptitude":
         chosen = _pick_items(APTITUDE_QA, num_questions)

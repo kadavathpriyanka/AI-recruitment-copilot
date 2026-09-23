@@ -26,12 +26,15 @@ SKILL_KEYWORDS = {
     "streamlit": ["streamlit", "dashboard", "widget"],
 }
 
-def start_interview(candidate_name, job, num_technical=2, num_behavioral=1, num_aptitude=0, difficulty="Intermediate"):
+def start_interview(candidate_name, job, num_technical=2, num_behavioral=1, num_situational=0,
+                     num_hr=0, num_aptitude=0, difficulty="Intermediate"):
     from interview_generator import generate_questions
 
     questions = (
         generate_questions(job, "technical", num_technical, difficulty) +
         generate_questions(job, "behavioral", num_behavioral, difficulty) +
+        generate_questions(job, "situational", num_situational, difficulty) +
+        generate_questions(job, "hr", num_hr, difficulty) +
         generate_questions(job, "aptitude", num_aptitude, difficulty)
     )
 
@@ -59,6 +62,7 @@ def evaluate_answer(answer_text, skill, qtype="technical"):
         return None, "Recorded — check the 'View Solution' answer to verify correctness."
 
     if not skill:
+        # Behavioral / Situational / HR — no fixed skill to check, judge on detail only
         if word_count >= 20:
             return None, "Good — specific and detailed answer."
         elif word_count >= 8:
@@ -107,14 +111,20 @@ def get_current_question(session):
         return None
     return session["questions"][session["current_index"]]["question"]
 
+def get_progress(session):
+    total = len(session["questions"])
+    if total == 0:
+        return 0, 0, 0
+    done = session["current_index"]
+    pct = round((done / total) * 100)
+    return done, total, pct
+
 def get_random_ack():
     return random.choice(FOLLOWUP_ACKS)
 
 def compute_interview_summary(session):
     """
-    Returns percentage-based stats for pictorial display:
-    - technical_relevant_pct: % of technical answers that referenced the right skill
-    - type_counts: how many questions of each type were answered
+    Returns percentage-based stats for pictorial display.
     """
     transcript = session["transcript"]
     total = len(transcript)
