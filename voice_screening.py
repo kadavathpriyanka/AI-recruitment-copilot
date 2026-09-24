@@ -1,11 +1,11 @@
 import wave
-import audioop
+import struct
 import io
 
 def analyze_audio(audio_bytes):
     """
-    Lightweight acoustic analysis using Python's stdlib wave/audioop modules —
-    no speech-to-text, no external APIs, no extra dependencies.
+    Lightweight acoustic analysis using only Python's stdlib wave and struct
+    modules — no speech-to-text, no external APIs, no extra dependencies.
     Returns duration, a volume score, and a heuristic preliminary assessment.
     """
     try:
@@ -17,10 +17,14 @@ def analyze_audio(audio_bytes):
             duration = n_frames / float(framerate) if framerate else 0
             raw_data = wf.readframes(n_frames)
 
+        rms = 0
         if sample_width == 2 and raw_data:
-            rms = audioop.rms(raw_data, sample_width)
-        else:
-            rms = 0
+            # Unpack 16-bit signed PCM samples and compute RMS manually
+            sample_count = len(raw_data) // 2
+            if sample_count > 0:
+                samples = struct.unpack(f"<{sample_count}h", raw_data[:sample_count * 2])
+                sum_squares = sum(s * s for s in samples)
+                rms = (sum_squares / sample_count) ** 0.5
 
         # Rough 0-100 volume/clarity score — speech rarely hits max amplitude, so scale up
         volume_score = min(round((rms / 32768) * 100 * 4, 1), 100)

@@ -14,6 +14,7 @@ from matching_engine import match_all_candidates, calculate_match, skill_gap_ana
 from matching_accuracy_check import get_accuracy_results
 from interview_generator import generate_questions, QUESTION_TYPE_LABELS
 from interview_simulation import start_interview, get_opening_message, submit_answer, get_current_question, compute_interview_summary, get_progress
+from voice_screening import analyze_audio
 from parser.pdf_reader import extract_text_from_pdf
 from parser.docx_reader import extract_text_from_docx
 
@@ -217,6 +218,7 @@ h1, h2, h3, h4, h5, p, span, label, div {
 .status-pill-Interview_Scheduled { background:rgba(251,191,36,0.15); color:#92400e; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(251,191,36,0.3); }
 .status-pill-Interview_Completed { background:rgba(13,148,136,0.12); color:#0f766e; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(13,148,136,0.25); }
 .status-pill-Offer_Extended { background:rgba(34,197,94,0.12); color:#15803d; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(34,197,94,0.25); }
+.status-pill-Hired { background:rgba(168,85,247,0.12); color:#7e22ce; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(168,85,247,0.25); }
 .status-pill-Rejected { background:rgba(248,113,113,0.12); color:#b91c1c; padding:3px 10px; border-radius:10px; font-size:12px; font-weight:700; border:1px solid rgba(248,113,113,0.25); }
 
 /* Global: every bordered Streamlit container gets the soft card treatment */
@@ -302,6 +304,7 @@ button[kind="primary"]:hover {
 init_db()
 
 QUESTION_TYPE_OPTIONS = ["technical", "behavioral", "situational", "hr", "aptitude"]
+ATS_STATUS_OPTIONS = ["Applied", "Interview Scheduled", "Interview Completed", "Offer Extended", "Hired", "Rejected"]
 
 def get_initials(name):
     if not name:
@@ -352,9 +355,9 @@ def extract_jd_text_from_file(uploaded_file):
 
 def render_interview_progress(session):
     """Pictorial progress bar shown during an in-progress interview."""
-    done, total, pct = get_progress(session)
-    st.progress(pct / 100 if total else 0)
-    st.caption(f"Question {min(done + 1, total)} of {total} · {pct}% complete")
+    done, total_q, pct = get_progress(session)
+    st.progress(pct / 100 if total_q else 0)
+    st.caption(f"Question {min(done + 1, total_q)} of {total_q} · {pct}% complete")
 
 def render_interview_summary_charts(session):
     """Pictorial summary (gauge + donut) shown after any interview completes."""
@@ -436,8 +439,8 @@ def show_login_page():
             <div class="login-feature">
                 <div class="login-feature-icon">🎙️</div>
                 <div>
-                    <div class="login-feature-title">5-Type Interview Assistant</div>
-                    <div class="login-feature-desc">Technical, Behavioral, Situational, HR, and Aptitude rounds with live AI feedback.</div>
+                    <div class="login-feature-title">Interview Assistant + Voice Screening</div>
+                    <div class="login-feature-desc">5 question types, live AI feedback, and preliminary voice screening.</div>
                 </div>
             </div>
             <div class="login-stat-row">
@@ -502,8 +505,9 @@ NAV_ITEMS = ["Dashboard", "Resume Upload", "Candidates", "Job Postings", "Analyt
 NAV_ICONS = {"Dashboard": "📊", "Resume Upload": "📄", "Candidates": "👥", "Job Postings": "💼", "Analytics": "📈"}
 
 if role in ["Recruiter", "Admin"]:
-    NAV_ITEMS = NAV_ITEMS + ["Interview Assistant"]
+    NAV_ITEMS = NAV_ITEMS + ["Interview Assistant", "Deployment"]
     NAV_ICONS["Interview Assistant"] = "🎙️"
+    NAV_ICONS["Deployment"] = "🚀"
 
 if role == "Admin":
     NAV_ITEMS = NAV_ITEMS + ["Manage Users"]
@@ -535,7 +539,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("Recruitment Copilot · v4.1")
+    st.caption("Recruitment Copilot · v4.2")
 
 all_candidates = get_all_candidates()
 my_candidates = all_candidates[all_candidates["uploaded_by"] == username] if not all_candidates.empty else all_candidates
@@ -1278,7 +1282,7 @@ elif st.session_state.page == "Interview Assistant":
             with ats_col2:
                 ats_job = st.selectbox("Job", all_jobs["title"].tolist(), key="ats_job")
             with ats_col3:
-                ats_new_status = st.selectbox("Status", ["Applied", "Interview Scheduled", "Interview Completed", "Offer Extended", "Rejected"], key="ats_status_select")
+                ats_new_status = st.selectbox("Status", ATS_STATUS_OPTIONS, key="ats_status_select")
             with ats_col4:
                 st.markdown("<div style='height:28px;'></div>", unsafe_allow_html=True)
                 if st.button("Update", key="ats_update_btn"):
@@ -1302,6 +1306,116 @@ elif st.session_state.page == "Interview Assistant":
                         st.caption(row["updated_at"][:16].replace("T", " "))
         else:
             st.info("No ATS records yet — update a status above to start tracking.")
+
+# =========================================================
+# PAGE: Dashboard & Deployment (Recruiter/Admin only) — Milestone 4
+# =========================================================
+elif st.session_state.page == "Deployment":
+    page_header("🚀", "Dashboard & Deployment", "Recruitment analytics, voice screening, and system status", role)
+
+    ats_df = get_ats_status()
+    applied_count = ats_df["candidate_email"].nunique() if not ats_df.empty else 0
+    interviews_scheduled = len(ats_df[ats_df["status"].isin(["Interview Scheduled", "Interview Completed"])]) if not ats_df.empty else 0
+    hired_df = ats_df[ats_df["status"] == "Hired"] if not ats_df.empty else pd.DataFrame()
+    hired_count = len(hired_df)
+    hiring_success_rate = round((hired_count / applied_count) * 100, 1) if applied_count else 0
+
+    avg_time_to_hire = None
+    if not hired_df.empty:
+        days_list = []
+        for _, hrow in hired_df.iterrows():
+            cand_match = all_candidates[all_candidates["email"] == hrow["candidate_email"]]
+            if not cand_match.empty and "created_at" in cand_match.columns:
+                try:
+                    created = pd.to_datetime(cand_match.iloc[0]["created_at"])
+                    hired_at = pd.to_datetime(hrow["updated_at"])
+                    days_list.append((hired_at - created).days)
+                except Exception:
+                    pass
+        if days_list:
+            avg_time_to_hire = round(sum(days_list) / len(days_list), 1)
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        st.markdown(f'<div class="metric-box"><div class="metric-label">Total Candidates</div><div class="metric-value">{total}</div></div>', unsafe_allow_html=True)
+    with m2:
+        st.markdown(f'<div class="metric-box"><div class="metric-label">Interviews Scheduled</div><div class="metric-value">{interviews_scheduled}</div></div>', unsafe_allow_html=True)
+    with m3:
+        st.markdown(f'<div class="metric-box"><div class="metric-label">Hiring Success Rate</div><div class="metric-value">{hiring_success_rate}%</div></div>', unsafe_allow_html=True)
+    with m4:
+        display_days = f"{avg_time_to_hire}d" if avg_time_to_hire is not None else "—"
+        st.markdown(f'<div class="metric-box"><div class="metric-label">Avg Time to Hire</div><div class="metric-value" style="font-size:22px;">{display_days}</div></div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+    pipeline_col, voice_col = st.columns([1.2, 1])
+
+    with pipeline_col:
+        st.subheader("📊 Recruitment Pipeline")
+        if all_candidates.empty:
+            st.info("No candidates yet to build a pipeline view.")
+        else:
+            screened_count = 0
+            interviewed_count = interviews_scheduled
+            offered_count = len(ats_df[ats_df["status"].isin(["Offer Extended", "Hired"])]) if not ats_df.empty else 0
+
+            if not all_jobs.empty:
+                screened_emails = set()
+                for _, job in all_jobs.iterrows():
+                    job_results = match_all_candidates(all_candidates, job.to_dict())
+                    for r in job_results:
+                        if r["hiring_score"] >= 60:
+                            screened_emails.add(r["email"])
+                screened_count = len(screened_emails)
+
+            funnel_df = pd.DataFrame({
+                "Stage": ["Applied", "Screened", "Interviewed", "Offered", "Hired"],
+                "Count": [total, screened_count, interviewed_count, offered_count, hired_count]
+            })
+            fig_funnel = px.bar(funnel_df, x="Stage", y="Count", color="Count",
+                                 color_continuous_scale=["#fed7aa", "#f97316"], text="Count")
+            fig_funnel.update_layout(height=340, showlegend=False, coloraxis_showscale=False,
+                                      margin=dict(t=20, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                                      font={"color": "#292524"})
+            st.plotly_chart(fig_funnel, use_container_width=True)
+            st.caption("'Screened' = candidates scoring ≥60% match on at least one posted job. 'Applied' = all processed candidates.")
+
+    with voice_col:
+        st.subheader("🎙️ Voice Screening Module")
+        if all_candidates.empty or all_jobs.empty:
+            st.info("Add at least one candidate and one job posting to use voice screening.")
+        else:
+            vs_candidate = st.selectbox("Candidate", all_candidates["name"].tolist(), key="vs_candidate")
+            vs_job = st.selectbox("Job", all_jobs["title"].tolist(), key="vs_job")
+            st.caption(f"Ask {vs_candidate} a screening question, then record their spoken response below.")
+
+            try:
+                audio_value = st.audio_input("Record response", key="vs_audio")
+            except AttributeError:
+                audio_value = None
+                st.warning("Your Streamlit version doesn't support `st.audio_input` yet. Run `pip install --upgrade streamlit` and restart the app to enable voice recording.")
+
+            if audio_value is not None:
+                st.audio(audio_value)
+                if st.button("🔍 Analyze Recording", type="primary"):
+                    analysis = analyze_audio(audio_value.getvalue())
+                    st.session_state.voice_analysis = analysis
+
+                if "voice_analysis" in st.session_state:
+                    va = st.session_state.voice_analysis
+                    vcol1, vcol2 = st.columns(2)
+                    with vcol1:
+                        st.metric("Duration", f"{va['duration_seconds']}s")
+                    with vcol2:
+                        st.metric("Volume Score", f"{va['volume_score']}%")
+                    st.markdown("**Preliminary Assessment:**")
+                    st.info(va["assessment"])
+                    st.caption("⚠️ Acoustic heuristic only (duration + volume) — not real speech-to-text or communication-skill analysis. Use as a rough triage signal, not a hiring decision.")
+
+                    if st.button("✅ Save to ATS as Interview Scheduled"):
+                        cand_row = all_candidates[all_candidates["name"] == vs_candidate].iloc[0]
+                        add_to_ats(vs_candidate, cand_row["email"], vs_job, "Interview Scheduled", username)
+                        st.success("Candidate moved to 'Interview Scheduled' in ATS")
+                        st.rerun()
 
 # =========================================================
 # PAGE: Analytics
