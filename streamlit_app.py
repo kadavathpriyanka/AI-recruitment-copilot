@@ -439,8 +439,8 @@ def show_login_page():
             <div class="login-feature">
                 <div class="login-feature-icon">🎙️</div>
                 <div>
-                    <div class="login-feature-title">Interview Assistant + Voice Screening</div>
-                    <div class="login-feature-desc">5 question types, live AI feedback, and preliminary voice screening.</div>
+                    <div class="login-feature-title">Interview + Voice Practice</div>
+                    <div class="login-feature-desc">5 question types, live AI feedback, and voice practice for candidates.</div>
                 </div>
             </div>
             <div class="login-stat-row">
@@ -539,7 +539,7 @@ with st.sidebar:
         st.rerun()
 
     st.markdown("---")
-    st.caption("Recruitment Copilot · v4.2")
+    st.caption("Recruitment Copilot · v4.3")
 
 all_candidates = get_all_candidates()
 my_candidates = all_candidates[all_candidates["uploaded_by"] == username] if not all_candidates.empty else all_candidates
@@ -993,6 +993,58 @@ elif st.session_state.page == "Job Postings":
                             del st.session_state.practice_session
                             st.rerun()
 
+        st.markdown("---")
+        st.subheader("🎙️ Voice Practice")
+        st.caption("Practice speaking your answer out loud and get quick feedback on pacing and clarity — useful before a real voice or video screening call.")
+
+        if all_jobs.empty:
+            st.info("No job postings available yet to practice against.")
+        else:
+            with st.container(border=True):
+                vp_job_title = st.selectbox("Job Position", all_jobs["title"].tolist(), key="vp_job")
+                vp_qtype = st.selectbox("Question Type", QUESTION_TYPE_OPTIONS,
+                                         format_func=lambda t: QUESTION_TYPE_LABELS.get(t, t.capitalize()), key="vp_qtype")
+                vp_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="vp_difficulty")
+
+                if st.button("🎯 Get a Practice Question", key="vp_get_question"):
+                    vp_job = all_jobs[all_jobs["title"] == vp_job_title].iloc[0].to_dict()
+                    vp_questions = generate_questions(vp_job, vp_qtype, 1, vp_difficulty)
+                    st.session_state.voice_practice_question = vp_questions[0]
+                    st.session_state.pop("voice_practice_analysis", None)
+
+                if "voice_practice_question" in st.session_state:
+                    vpq = st.session_state.voice_practice_question
+                    type_label = QUESTION_TYPE_LABELS.get(vpq.get("type", "technical"), "Question")
+                    st.markdown(f"<span class='type-badge'>{type_label}</span>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='chat-bubble-ai'>{vpq['question']}</div>", unsafe_allow_html=True)
+
+                    try:
+                        vp_audio = st.audio_input("Record your answer out loud", key="vp_audio")
+                    except AttributeError:
+                        vp_audio = None
+                        st.warning("Your Streamlit version doesn't support `st.audio_input` yet. Run `pip install --upgrade streamlit` and restart the app to enable voice recording.")
+
+                    if vp_audio is not None:
+                        st.audio(vp_audio)
+                        if st.button("🔍 Analyze My Recording", type="primary", key="vp_analyze"):
+                            st.session_state.voice_practice_analysis = analyze_audio(vp_audio.getvalue())
+
+                        if "voice_practice_analysis" in st.session_state:
+                            vpa = st.session_state.voice_practice_analysis
+                            vp_col1, vp_col2 = st.columns(2)
+                            with vp_col1:
+                                st.metric("Duration", f"{vpa['duration_seconds']}s")
+                            with vp_col2:
+                                st.metric("Volume Score", f"{vpa['volume_score']}%")
+                            st.markdown("**Feedback on your delivery:**")
+                            st.info(vpa["assessment"])
+                            st.caption("⚠️ This checks pacing and volume only — not what you actually said. Use it to practice speaking clearly and at a good pace, not as a judgment of your answer's content.")
+
+                    if st.button("🔄 New Question", key="vp_new_question"):
+                        st.session_state.pop("voice_practice_question", None)
+                        st.session_state.pop("voice_practice_analysis", None)
+                        st.rerun()
+
     else:  # Recruiter or Admin
         page_header("💼", "Job Postings", "Post a job requirement and rank all candidates against it", role)
 
@@ -1381,6 +1433,7 @@ elif st.session_state.page == "Deployment":
 
     with voice_col:
         st.subheader("🎙️ Voice Screening Module")
+        st.caption("Recruiter-administered: use this while on a screening call, recording the candidate's spoken answer.")
         if all_candidates.empty or all_jobs.empty:
             st.info("Add at least one candidate and one job posting to use voice screening.")
         else:
