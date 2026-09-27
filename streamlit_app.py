@@ -8,7 +8,7 @@ from collections import Counter
 from app import process_resume
 from accuracy_check import run_accuracy_check
 from auth import signup_user, login_user, get_all_users
-from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates, insert_job, get_all_jobs, delete_job, add_to_ats, get_ats_status
+from database import init_db, insert_candidate, get_all_candidates, clear_all_candidates, insert_job, get_all_jobs, delete_job, add_to_ats, get_ats_status, submit_feedback, get_feedback, get_satisfaction_score
 from jd_extractor import analyze_job_description
 from matching_engine import match_all_candidates, calculate_match, skill_gap_analysis
 from matching_accuracy_check import get_accuracy_results
@@ -303,6 +303,14 @@ button[kind="primary"]:hover {
 
 init_db()
 
+@st.cache_data(ttl=60)
+def cached_accuracy_check():
+    return run_accuracy_check()
+
+@st.cache_data
+def cached_matching_accuracy():
+    return get_accuracy_results()
+
 QUESTION_TYPE_OPTIONS = ["technical", "behavioral", "situational", "hr", "aptitude"]
 ATS_STATUS_OPTIONS = ["Applied", "Interview Scheduled", "Interview Completed", "Offer Extended", "Hired", "Rejected"]
 
@@ -533,18 +541,29 @@ with st.sidebar:
         st.session_state.processed_files = set()
         st.rerun()
     if st.button("🚪 Logout"):
+        for key in ["interview_session", "interview_started", "practice_session", "practice_started",
+                    "voice_analysis", "voice_practice_question", "voice_practice_analysis",
+                    "generated_questions", "processed_files"]:
+            st.session_state.pop(key, None)
         st.session_state.logged_in = False
         st.session_state.username = None
         st.session_state.role = None
         st.rerun()
 
     st.markdown("---")
-    st.caption("Recruitment Copilot · v4.3")
+    with st.expander("💬 Rate your experience"):
+        fb_rating = st.select_slider("Rating", options=[1, 2, 3, 4, 5], value=5, key="fb_rating")
+        fb_comment = st.text_area("Comments (optional)", key="fb_comment", height=70)
+        if st.button("Submit Feedback", key="fb_submit"):
+            submit_feedback(username, role, fb_rating, fb_comment)
+            st.success("Thanks for your feedback!")
+
+    st.caption("Recruitment Copilot · v4.4")
 
 all_candidates = get_all_candidates()
 my_candidates = all_candidates[all_candidates["uploaded_by"] == username] if not all_candidates.empty else all_candidates
 total = len(all_candidates)
-accuracy = run_accuracy_check() if total > 0 else 0
+accuracy = cached_accuracy_check() if total > 0 else 0
 all_jobs = get_all_jobs()
 
 FIELDS = ["name", "email", "phone", "education", "skills", "experience", "certifications"]
@@ -1387,7 +1406,7 @@ elif st.session_state.page == "Deployment":
         if days_list:
             avg_time_to_hire = round(sum(days_list) / len(days_list), 1)
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     with m1:
         st.markdown(f'<div class="metric-box"><div class="metric-label">Total Candidates</div><div class="metric-value">{total}</div></div>', unsafe_allow_html=True)
     with m2:
@@ -1397,8 +1416,47 @@ elif st.session_state.page == "Deployment":
     with m4:
         display_days = f"{avg_time_to_hire}d" if avg_time_to_hire is not None else "—"
         st.markdown(f'<div class="metric-box"><div class="metric-label">Avg Time to Hire</div><div class="metric-value" style="font-size:22px;">{display_days}</div></div>', unsafe_allow_html=True)
+    with m5:
+        satisfaction_score, feedback_count = get_satisfaction_score()
+        display_satisfaction = f"{satisfaction_score}%" if satisfaction_score is not None else "—"
+        st.markdown(f'<div class="metric-box"><div class="metric-label">User Satisfaction</div><div class="metric-value">{display_satisfaction}</div></div>', unsafe_allow_html=True)
 
     st.markdown("---")
+
+    if satisfaction_score is not None:
+        st.subheader("😊 User Satisfaction")
+        sat_gauge_col, sat_comments_col = st.columns([1, 1.4])
+        with sat_gauge_col:
+            fig_sat = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=satisfaction_score,
+                number={"suffix": "%", "font": {"size": 34, "color": "#f97316"}},
+                title={"text": f"Based on {feedback_count} response(s) vs 85% target", "font": {"size": 12, "color": "#292524"}},
+                gauge={
+                    "axis": {"range": [0, 100], "tickcolor": "#a8a29e"},
+                    "bar": {"color": "#f97316"},
+                    "bgcolor": "rgba(0,0,0,0)",
+                    "steps": [
+                        {"range": [0, 60], "color": "rgba(248,113,113,0.18)"},
+                        {"range": [60, 85], "color": "rgba(251,191,36,0.18)"},
+                        {"range": [85, 100], "color": "rgba(34,197,94,0.18)"},
+                    ],
+                    "threshold": {"line": {"color": "#0d9488", "width": 4}, "thickness": 0.8, "value": 85},
+                },
+            ))
+            fig_sat.update_layout(height=240, margin=dict(t=50, b=10, l=20, r=20), paper_bgcolor="rgba(0,0,0,0)", font={"color": "#292524"})
+            st.plotly_chart(fig_sat, use_container_width=True)
+        with sat_comments_col:
+            st.markdown("**Recent feedback:**")
+            fb_df = get_feedback().head(5)
+            for _, fb in fb_df.iterrows():
+                stars = "⭐" * int(fb["rating"])
+                with st.container(border=True):
+                    st.markdown(f"{stars} — *{fb['role']}*")
+                    if fb["comment"]:
+                        st.caption(fb["comment"])
+        st.markdown("---")
+
     pipeline_col, voice_col = st.columns([1.2, 1])
 
     with pipeline_col:
@@ -1528,7 +1586,7 @@ elif st.session_state.page == "Analytics":
         st.subheader("🎯 Matching Algorithm Accuracy")
         st.caption("Validated against hand-crafted test cases with known expected outcomes")
 
-        match_accuracy, match_test_rows = get_accuracy_results()
+        match_accuracy, match_test_rows = cached_matching_accuracy()
 
         match_gauge_col, match_table_col = st.columns([1, 1.4])
 

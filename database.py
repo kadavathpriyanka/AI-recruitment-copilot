@@ -45,6 +45,16 @@ def init_db():
             updated_at TIMESTAMP
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            role TEXT,
+            rating INTEGER,
+            comment TEXT,
+            created_at TIMESTAMP
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -152,3 +162,27 @@ def get_ats_status(job_title=None):
         df = pd.read_sql_query("SELECT * FROM ats_status ORDER BY updated_at DESC", conn)
     conn.close()
     return df
+
+def submit_feedback(username, role, rating, comment):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO feedback (username, role, rating, comment, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    """, (username, role, rating, comment, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+def get_feedback():
+    conn = sqlite3.connect(DB_PATH)
+    df = pd.read_sql_query("SELECT * FROM feedback ORDER BY created_at DESC", conn)
+    conn.close()
+    return df
+
+def get_satisfaction_score():
+    df = get_feedback()
+    if df.empty:
+        return None, 0
+    avg_rating = df["rating"].mean()
+    satisfaction_pct = round((avg_rating / 5) * 100, 1)
+    return satisfaction_pct, len(df)
