@@ -14,7 +14,7 @@ from matching_engine import match_all_candidates, calculate_match, skill_gap_ana
 from matching_accuracy_check import get_accuracy_results
 from interview_generator import generate_questions, QUESTION_TYPE_LABELS
 from interview_simulation import start_interview, get_opening_message, submit_answer, get_current_question, compute_interview_summary, get_progress
-from voice_screening import analyze_audio
+from voice_screening import analyze_audio, speak_text, listen_to_candidate, generate_voice_feedback
 from parser.pdf_reader import extract_text_from_pdf
 from parser.docx_reader import extract_text_from_docx
 
@@ -650,81 +650,308 @@ if st.session_state.page == "Dashboard":
                             st.markdown(f"Requires: {badges}", unsafe_allow_html=True)
 
     else:  # Recruiter / Admin
+        # =========================================================
+        # RECRUITER / ADMIN DASHBOARD
+        # =========================================================
         page_header("📊", f"{get_greeting()}, {username}", "Recruitment pipeline overview", role)
 
-        m1, m2, m3, m4 = st.columns(4)
-        with m1:
-            st.markdown(f'<div class="metric-box"><div class="metric-label">Total Candidates</div><div class="metric-value">{total}</div></div>', unsafe_allow_html=True)
-        with m2:
-            st.markdown(f'<div class="metric-box"><div class="metric-label">Open Job Postings</div><div class="metric-value">{len(all_jobs)}</div></div>', unsafe_allow_html=True)
-        with m3:
-            top_skill = "—"
-            if total > 0:
-                all_skills = [s for skills in all_candidates["skills"] for s in skills]
-                if all_skills:
-                    top_skill = Counter(all_skills).most_common(1)[0][0]
-            st.markdown(f'<div class="metric-box"><div class="metric-label">Most Common Skill</div><div class="metric-value" style="font-size:20px;">{top_skill}</div></div>', unsafe_allow_html=True)
-        with m4:
-            st.markdown(f'<div class="metric-box"><div class="metric-label">Extraction Accuracy</div><div class="metric-value">{accuracy}%</div></div>', unsafe_allow_html=True)
+        def dashboard_list(value):
+            if value is None:
+                return []
+            if isinstance(value, list):
+                return [str(x).strip() for x in value if str(x).strip()]
+            if isinstance(value, str):
+                return [x.strip() for x in value.split(",") if x.strip()]
+            return []
 
-        st.markdown("---")
+        # Live candidate-job matching data
+        candidate_best_scores = {}
+        candidate_best_jobs = {}
+        missing_skill_counter = Counter()
 
-        if all_jobs.empty:
-            st.info("No job postings yet — add one from the Job Postings page.")
-        elif all_candidates.empty:
-            st.info("No candidates in the pool yet.")
-        else:
-            rows = []
-            best_overall = []
+        if not all_candidates.empty and not all_jobs.empty:
             for _, job in all_jobs.iterrows():
-                job_results = match_all_candidates(all_candidates, job.to_dict())
-                strong_matches = sum(1 for r in job_results if r["hiring_score"] >= 85)
-                avg_score = round(sum(r["hiring_score"] for r in job_results) / len(job_results), 1) if job_results else 0
-                rows.append({"Job Title": job["title"], "Candidates Evaluated": len(job_results),
-                             "Strong Matches (≥85%)": strong_matches, "Avg Match Score": f"{avg_score}%"})
-                if job_results:
-                    top = job_results[0]
-                    best_overall.append({"name": top["name"], "score": top["hiring_score"], "job_title": job["title"]})
+                job_dict = job.to_dict()
+                try:
+                    results = match_all_candidates(all_candidates, job_dict)
+                except Exception:
+                    results = []
 
-            best_overall.sort(key=lambda x: x["score"], reverse=True)
+                required_skills = dashboard_list(job_dict.get("required_skills", []))
 
-            chart_col, leaderboard_col = st.columns([1.6, 1])
+                for result in results:
+                    name = result.get("name", "Unknown")
+                    score = result.get("hiring_score", result.get("score", 0))
+                    try:
+                        score = float(score)
+                    except (TypeError, ValueError):
+                        score = 0.0
 
-            with chart_col:
-                st.subheader("📋 Strong Match Count by Job")
-                summary_df = pd.DataFrame(rows)
-                fig_pipeline = px.bar(summary_df, x="Job Title", y="Strong Matches (≥85%)",
-                                       color="Strong Matches (≥85%)", color_continuous_scale=["#fed7aa", "#f97316"],
-                                       text="Strong Matches (≥85%)")
-                fig_pipeline.update_layout(height=340, showlegend=False, coloraxis_showscale=False,
-                                            margin=dict(t=20, b=10, l=10, r=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                                            font={"color": "#292524"})
-                st.plotly_chart(fig_pipeline, use_container_width=True)
+                    if name not in candidate_best_scores or score > candidate_best_scores[name]:
+                        candidate_best_scores[name] = score
+                        candidate_best_jobs[name] = job_dict.get("title", "Unknown Job")
 
-                table_html = "<table style='width:100%; border-collapse: collapse;'>"
-                table_html += "<tr style='text-align:left; border-bottom: 2px solid rgba(41,37,36,0.12);'>"
-                for col in summary_df.columns:
-                    table_html += f"<th style='padding:8px;'>{col}</th>"
-                table_html += "</tr>"
-                for _, row in summary_df.iterrows():
-                    table_html += "<tr style='border-bottom: 1px solid rgba(41,37,36,0.06);'>"
-                    for val in row:
-                        table_html += f"<td style='padding:8px;'>{val}</td>"
-                    table_html += "</tr>"
-                table_html += "</table>"
-                st.markdown(table_html, unsafe_allow_html=True)
+                    result_missing = result.get("missing_skills", [])
+                    if result_missing:
+                        for skill in dashboard_list(result_missing):
+                            missing_skill_counter[skill] += 1
+                    else:
+                        candidate_row = all_candidates[all_candidates["name"] == name]
+                        if not candidate_row.empty:
+                            candidate_skills = {
+                                x.lower() for x in dashboard_list(candidate_row.iloc[0].get("skills", []))
+                            }
+                            for skill in required_skills:
+                                if skill.lower() not in candidate_skills:
+                                    missing_skill_counter[skill] += 1
 
-            with leaderboard_col:
-                st.subheader("🏆 Top Matches Overall")
-                if best_overall:
-                    medals = ["🥇", "🥈", "🥉"]
-                    for i, entry in enumerate(best_overall[:3]):
-                        with st.container(border=True):
-                            st.markdown(f"<span class='leaderboard-rank'>{medals[i]}</span> **{entry['name']}**", unsafe_allow_html=True)
-                            st.caption(f"Best fit for: {entry['job_title']}")
-                            st.markdown(f"<span style='color:#15803d; font-weight:800; font-size:20px;'>{entry['score']}%</span>", unsafe_allow_html=True)
+        # ATS / interview status
+        ats_df = get_ats_status()
+        if ats_df is None:
+            ats_df = pd.DataFrame()
+
+        status_counts = {}
+        if not ats_df.empty and "status" in ats_df.columns:
+            status_counts = ats_df["status"].value_counts().to_dict()
+
+        applied = status_counts.get("Applied", 0)
+        scheduled = status_counts.get("Interview Scheduled", 0)
+        completed = status_counts.get("Interview Completed", 0)
+        hired = status_counts.get("Hired", 0)
+        pending = max(total - applied - scheduled - completed - hired, 0)
+
+        # =========================================================
+        # KPI CARDS
+        # =========================================================
+        st.markdown("### 📌 Recruitment Overview")
+        m1, m2, m3, m4 = st.columns(4)
+
+        average_score = (
+            round(sum(candidate_best_scores.values()) / len(candidate_best_scores))
+            if candidate_best_scores else 0
+        )
+
+        with m1:
+            st.markdown(
+                f'<div class="metric-box"><div class="metric-label">👥 Total Candidates</div><div class="metric-value">{total}</div><div style="color:#64748b;font-size:12px;">Resumes processed</div></div>',
+                unsafe_allow_html=True
+            )
+        with m2:
+            st.markdown(
+                f'<div class="metric-box"><div class="metric-label">💼 Open Job Postings</div><div class="metric-value">{len(all_jobs)}</div><div style="color:#64748b;font-size:12px;">Active recruitment roles</div></div>',
+                unsafe_allow_html=True
+            )
+        with m3:
+            st.markdown(
+                f'<div class="metric-box"><div class="metric-label">🎯 Average Hiring Score</div><div class="metric-value">{average_score}%</div><div style="color:#64748b;font-size:12px;">Best available job match</div></div>',
+                unsafe_allow_html=True
+            )
+        with m4:
+            st.markdown(
+                f'<div class="metric-box"><div class="metric-label">🎤 Interviews Completed</div><div class="metric-value">{completed}</div><div style="color:#64748b;font-size:12px;">ATS interview status</div></div>',
+                unsafe_allow_html=True
+            )
+
+        # =========================================================
+        # PIPELINE + SCORE DISTRIBUTION
+        # =========================================================
+        st.markdown("---")
+        pipeline_col, score_col = st.columns(2)
+
+        with pipeline_col:
+            st.markdown("### 🔄 Candidate Pipeline")
+            pipeline_df = pd.DataFrame({
+                "Stage": ["Pending", "Applied", "Interview Scheduled", "Interview Completed", "Hired"],
+                "Candidates": [pending, applied, scheduled, completed, hired]
+            })
+            if pipeline_df["Candidates"].sum() > 0:
+                fig = px.bar(
+                    pipeline_df,
+                    x="Candidates",
+                    y="Stage",
+                    orientation="h",
+                    text="Candidates"
+                )
+                fig.update_traces(textposition="outside")
+                fig.update_layout(
+                    height=330,
+                    margin=dict(t=20, b=20, l=10, r=30),
+                    showlegend=False,
+                    paper_bgcolor="rgba(0,0,0,0)"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Candidate status information will appear after candidates enter the ATS.")
+
+        with score_col:
+            st.markdown("### 🎯 Hiring Score Distribution")
+            bins = {"90–100": 0, "80–89": 0, "70–79": 0, "60–69": 0, "Below 60": 0}
+            for score in candidate_best_scores.values():
+                if score >= 90:
+                    bins["90–100"] += 1
+                elif score >= 80:
+                    bins["80–89"] += 1
+                elif score >= 70:
+                    bins["70–79"] += 1
+                elif score >= 60:
+                    bins["60–69"] += 1
                 else:
-                    st.info("No matches computed yet.")
+                    bins["Below 60"] += 1
+
+            score_df = pd.DataFrame({"Score Range": list(bins.keys()), "Candidates": list(bins.values())})
+            if score_df["Candidates"].sum() > 0:
+                fig = px.bar(score_df, x="Score Range", y="Candidates", text="Candidates")
+                fig.update_traces(textposition="outside")
+                fig.update_layout(
+                    height=330,
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    showlegend=False,
+                    paper_bgcolor="rgba(0,0,0,0)"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Hiring scores will appear after candidate-job matching.")
+
+        # =========================================================
+        # CANDIDATE RANKINGS
+        # =========================================================
+        st.markdown("---")
+        st.markdown("### 🏆 Candidate Rankings")
+
+        if not all_candidates.empty:
+            ranking_rows = []
+            for _, candidate in all_candidates.iterrows():
+                name = candidate.get("name", "Unknown")
+                ranking_rows.append({
+                    "Candidate": name,
+                    "Hiring Score": round(candidate_best_scores.get(name, 0)),
+                    "Best Fit For": candidate_best_jobs.get(name, "No job matched yet"),
+                    "Skills": ", ".join(dashboard_list(candidate.get("skills", []))) or "—",
+                    "Email": candidate.get("email", "—")
+                })
+
+            ranking_df = pd.DataFrame(ranking_rows).sort_values("Hiring Score", ascending=False)
+            ranking_display = ranking_df.copy()
+            ranking_display["Hiring Score"] = ranking_display["Hiring Score"].astype(str) + "%"
+            st.dataframe(ranking_display.head(10), use_container_width=True, hide_index=True)
+        else:
+            st.info("No candidates available. Upload resumes to populate the dashboard.")
+
+        # =========================================================
+        # SKILL GAP REPORT
+        # =========================================================
+        st.markdown("---")
+        st.markdown("### 🧩 Skill Gap Reports")
+        st.caption("Required job skills that are missing from candidate profiles.")
+
+        if missing_skill_counter:
+            gap_df = pd.DataFrame(
+                missing_skill_counter.most_common(10),
+                columns=["Missing Skill", "Candidates Missing Skill"]
+            )
+            fig = px.bar(
+                gap_df,
+                x="Candidates Missing Skill",
+                y="Missing Skill",
+                orientation="h",
+                text="Candidates Missing Skill"
+            )
+            fig.update_traces(textposition="outside")
+            fig.update_layout(
+                height=380,
+                margin=dict(t=20, b=20, l=20, r=30),
+                showlegend=False,
+                paper_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Skill-gap information will appear after candidates and job requirements are available.")
+
+        # =========================================================
+        # SKILL LANDSCAPE + RECRUITMENT FUNNEL
+        # =========================================================
+        skill_col, funnel_col = st.columns(2)
+
+        with skill_col:
+            st.markdown("### 🛠️ Candidate Skill Landscape")
+            skill_counter = Counter()
+            for _, candidate in all_candidates.iterrows():
+                for skill in dashboard_list(candidate.get("skills", [])):
+                    skill_counter[skill] += 1
+
+            if skill_counter:
+                skill_df = pd.DataFrame(
+                    skill_counter.most_common(8),
+                    columns=["Skill", "Candidates"]
+                )
+                fig = px.bar(skill_df, x="Skill", y="Candidates", text="Candidates")
+                fig.update_traces(textposition="outside")
+                fig.update_layout(
+                    height=350,
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    showlegend=False,
+                    paper_bgcolor="rgba(0,0,0,0)"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Candidate skills will appear after resume processing.")
+
+        with funnel_col:
+            st.markdown("### 📋 Recruitment Funnel")
+            funnel_df = pd.DataFrame({
+                "Stage": ["Resume Uploaded", "Applied", "Interview Scheduled", "Interview Completed", "Hired"],
+                "Count": [total, applied, scheduled, completed, hired]
+            })
+            fig = px.funnel(funnel_df, x="Count", y="Stage")
+            fig.update_layout(
+                height=350,
+                margin=dict(t=20, b=20, l=20, r=20),
+                paper_bgcolor="rgba(0,0,0,0)"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # =========================================================
+        # ATS STATUS
+        # =========================================================
+        st.markdown("---")
+        st.markdown("### 📌 Current ATS Status")
+
+        if not ats_df.empty:
+            display_cols = [
+                c for c in ["candidate_name", "job_title", "status", "updated_at"]
+                if c in ats_df.columns
+            ]
+            if display_cols:
+                display_ats = ats_df[display_cols].copy()
+                display_ats.rename(columns={
+                    "candidate_name": "Candidate",
+                    "job_title": "Job",
+                    "status": "Interview Status",
+                    "updated_at": "Last Updated"
+                }, inplace=True)
+                st.dataframe(display_ats, use_container_width=True, hide_index=True)
+        else:
+            st.info("No ATS activity yet. Interview and candidate status updates will appear here.")
+
+        # =========================================================
+        # QUICK ACTIONS
+        # =========================================================
+        st.markdown("---")
+        st.markdown("### ⚡ Quick Actions")
+        q1, q2, q3 = st.columns(3)
+
+        with q1:
+            if st.button("📄 Upload Resume", use_container_width=True, key="dashboard_upload_resume"):
+                st.session_state.page = "Resume Upload"
+                st.rerun()
+        with q2:
+            if st.button("💼 Manage Jobs", use_container_width=True, key="dashboard_manage_jobs"):
+                st.session_state.page = "Job Postings"
+                st.rerun()
+        with q3:
+            if st.button("🎙️ Interview Assistant", use_container_width=True, key="dashboard_interview"):
+                st.session_state.page = "Interview Assistant"
+                st.rerun()
 
 # =========================================================
 # PAGE: Resume Upload
@@ -1013,55 +1240,146 @@ elif st.session_state.page == "Job Postings":
                             st.rerun()
 
         st.markdown("---")
-        st.subheader("🎙️ Voice Practice")
-        st.caption("Practice speaking your answer out loud and get quick feedback on pacing and clarity — useful before a real voice or video screening call.")
+        st.subheader("🎙️ Voice-Based Screening")
+        st.caption("Practice a real voice interview: the AI asks the question aloud, you record your answer in the browser, and the app converts your speech to text and provides feedback.")
 
         if all_jobs.empty:
             st.info("No job postings available yet to practice against.")
         else:
             with st.container(border=True):
-                vp_job_title = st.selectbox("Job Position", all_jobs["title"].tolist(), key="vp_job")
-                vp_qtype = st.selectbox("Question Type", QUESTION_TYPE_OPTIONS,
-                                         format_func=lambda t: QUESTION_TYPE_LABELS.get(t, t.capitalize()), key="vp_qtype")
-                vp_difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], index=1, key="vp_difficulty")
+                vp_job_title = st.selectbox(
+                    "Job Position",
+                    all_jobs["title"].tolist(),
+                    key="vp_job"
+                )
+                vp_qtype = st.selectbox(
+                    "Question Type",
+                    QUESTION_TYPE_OPTIONS,
+                    format_func=lambda t: QUESTION_TYPE_LABELS.get(t, t.capitalize()),
+                    key="vp_qtype"
+                )
+                vp_difficulty = st.selectbox(
+                    "Difficulty",
+                    ["Beginner", "Intermediate", "Advanced"],
+                    index=1,
+                    key="vp_difficulty"
+                )
 
-                if st.button("🎯 Get a Practice Question", key="vp_get_question"):
+                if st.button("🎯 Get Voice Interview Question", key="vp_get_question", type="primary"):
                     vp_job = all_jobs[all_jobs["title"] == vp_job_title].iloc[0].to_dict()
                     vp_questions = generate_questions(vp_job, vp_qtype, 1, vp_difficulty)
-                    st.session_state.voice_practice_question = vp_questions[0]
-                    st.session_state.pop("voice_practice_analysis", None)
+
+                    if vp_questions:
+                        st.session_state.voice_practice_question = vp_questions[0]
+                        st.session_state.pop("voice_practice_response", None)
+                        st.session_state.pop("voice_practice_feedback", None)
+                        st.session_state.pop("voice_practice_analysis", None)
+                        st.session_state.voice_practice_started = False
+                        st.session_state.pop("vp_audio_processed", None)
+                        st.rerun()
 
                 if "voice_practice_question" in st.session_state:
                     vpq = st.session_state.voice_practice_question
-                    type_label = QUESTION_TYPE_LABELS.get(vpq.get("type", "technical"), "Question")
-                    st.markdown(f"<span class='type-badge'>{type_label}</span>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='chat-bubble-ai'>{vpq['question']}</div>", unsafe_allow_html=True)
+                    type_label = QUESTION_TYPE_LABELS.get(
+                        vpq.get("type", "technical"),
+                        "Question"
+                    )
 
-                    try:
-                        vp_audio = st.audio_input("Record your answer out loud", key="vp_audio")
-                    except AttributeError:
-                        vp_audio = None
-                        st.warning("Your Streamlit version doesn't support `st.audio_input` yet. Run `pip install --upgrade streamlit` and restart the app to enable voice recording.")
+                    st.markdown(
+                        f"<span class='type-badge'>{type_label}</span>",
+                        unsafe_allow_html=True
+                    )
+                    st.markdown(
+                        f"<div class='chat-bubble-ai'>🎙️ {vpq['question']}</div>",
+                        unsafe_allow_html=True
+                    )
 
-                    if vp_audio is not None:
-                        st.audio(vp_audio)
-                        if st.button("🔍 Analyze My Recording", type="primary", key="vp_analyze"):
-                            st.session_state.voice_practice_analysis = analyze_audio(vp_audio.getvalue())
+                    if not st.session_state.get("voice_practice_started", False):
+                        st.info("Click Start Voice Interview. The AI will ask the question aloud, then you can record your answer below.")
 
-                        if "voice_practice_analysis" in st.session_state:
-                            vpa = st.session_state.voice_practice_analysis
-                            vp_col1, vp_col2 = st.columns(2)
-                            with vp_col1:
-                                st.metric("Duration", f"{vpa['duration_seconds']}s")
-                            with vp_col2:
-                                st.metric("Volume Score", f"{vpa['volume_score']}%")
-                            st.markdown("**Feedback on your delivery:**")
-                            st.info(vpa["assessment"])
-                            st.caption("⚠️ This checks pacing and volume only — not what you actually said. Use it to practice speaking clearly and at a good pace, not as a judgment of your answer's content.")
+                        if st.button("🎤 Start Voice Interview", key="vp_start_voice", type="primary"):
+                            with st.spinner("AI interviewer is speaking..."):
+                                spoken = speak_text(vpq["question"])
 
-                    if st.button("🔄 New Question", key="vp_new_question"):
-                        st.session_state.pop("voice_practice_question", None)
-                        st.session_state.pop("voice_practice_analysis", None)
+                            if not spoken:
+                                st.warning(
+                                    "The AI interviewer could not start text-to-speech. "
+                                    "You can still read the question above and record your answer."
+                                )
+
+                            st.session_state.voice_practice_started = True
+                            st.rerun()
+                    else:
+                        st.success("🎤 The AI has asked the question. Now record your answer below.")
+
+                        try:
+                            vp_audio = st.audio_input(
+                                "Record your answer",
+                                key="vp_audio"
+                            )
+                        except AttributeError:
+                            vp_audio = None
+                            st.error(
+                                "Your Streamlit version does not support st.audio_input(). "
+                                "Run: python -m pip install --upgrade streamlit"
+                            )
+
+                        if vp_audio is not None:
+                            st.audio(vp_audio)
+
+                            if st.button("📝 Transcribe My Answer", key="vp_transcribe", type="primary"):
+                                with st.spinner("Converting your speech to text..."):
+                                    result = listen_to_candidate(vp_audio.getvalue())
+
+                                if result["success"]:
+                                    response = result["text"]
+                                    st.session_state.voice_practice_response = response
+                                    st.session_state.voice_practice_analysis = analyze_audio(vp_audio.getvalue())
+                                    st.session_state.voice_practice_feedback = generate_voice_feedback(response)
+                                    st.session_state.vp_audio_processed = True
+                                else:
+                                    st.session_state.voice_practice_response = result["text"]
+                                    st.session_state.voice_practice_feedback = result["text"]
+                                    st.session_state.pop("voice_practice_analysis", None)
+                                    st.session_state.vp_audio_processed = False
+
+                                st.rerun()
+
+                        if "voice_practice_response" in st.session_state:
+                            response = st.session_state.voice_practice_response
+
+                            st.markdown("**📝 Your Transcribed Response**")
+                            st.markdown(
+                                f"<div class='chat-bubble-candidate'>{response}</div>",
+                                unsafe_allow_html=True
+                            )
+
+                            if st.session_state.get("vp_audio_processed") and "voice_practice_analysis" in st.session_state:
+                                vpa = st.session_state.voice_practice_analysis
+                                vp_col1, vp_col2 = st.columns(2)
+                                with vp_col1:
+                                    st.metric("Duration", f"{vpa['duration_seconds']}s")
+                                with vp_col2:
+                                    st.metric("Volume Score", f"{vpa['volume_score']}%")
+
+                            if "voice_practice_feedback" in st.session_state:
+                                st.markdown("**🤖 AI Feedback**")
+                                st.info(st.session_state.voice_practice_feedback)
+
+                                if st.session_state.get("vp_audio_processed"):
+                                    if st.button("🔊 Hear AI Feedback", key="vp_speak_feedback"):
+                                        speak_text(st.session_state.voice_practice_feedback)
+
+                    if st.button("🔄 New Voice Question", key="vp_new_question"):
+                        for key in [
+                            "voice_practice_question",
+                            "voice_practice_response",
+                            "voice_practice_feedback",
+                            "voice_practice_analysis",
+                            "voice_practice_started",
+                            "vp_audio_processed"
+                        ]:
+                            st.session_state.pop(key, None)
                         st.rerun()
 
     else:  # Recruiter or Admin
@@ -1309,10 +1627,108 @@ elif st.session_state.page == "Interview Assistant":
                         current_type = session["questions"][session["current_index"]].get("type", "technical")
                         st.markdown(f"<span class='type-badge'>{QUESTION_TYPE_LABELS.get(current_type, 'Question')}</span>", unsafe_allow_html=True)
                         st.markdown(f"<div class='chat-bubble-ai'>{current_q}</div>", unsafe_allow_html=True)
-                        answer = st.text_area("Type response...", key=f"answer_{session['current_index']}", label_visibility="collapsed")
-                        if st.button("➤ Send", key=f"send_{session['current_index']}", type="primary"):
+
+                        # -------------------------------------------------
+                        # Recruiter/Admin AI Interview Simulation - Voice Mode
+                        # -------------------------------------------------
+                        st.markdown("### 🎙️ Voice Interview")
+                        st.caption(
+                            "Let the AI interviewer ask the question aloud, then record the candidate's answer. "
+                            "The recording is converted to text and submitted to the interview simulation."
+                        )
+
+                        voice_q_key = f"voice_question_{session['current_index']}"
+                        voice_audio_key = f"interview_voice_audio_{session['current_index']}"
+                        voice_result_key = f"interview_voice_result_{session['current_index']}"
+
+                        if st.button("🔊 Ask Question by Voice", key=f"ask_voice_{session['current_index']}"):
+                            speak_text(current_q)
+                            st.session_state[voice_q_key] = True
+                            st.session_state.pop(voice_result_key, None)
+
+                        if st.session_state.get(voice_q_key):
+                            st.info(
+                                "🎤 The AI has asked the question. "
+                                "Use the microphone below and speak the candidate's answer."
+                            )
+
+                            try:
+                                voice_audio = st.audio_input(
+                                    "🎤 Record candidate answer",
+                                    key=voice_audio_key
+                                )
+                            except AttributeError:
+                                voice_audio = None
+                                st.warning(
+                                    "Your Streamlit version does not support `st.audio_input`. "
+                                    "Run `python -m pip install --upgrade streamlit` and restart the app."
+                                )
+
+                            if voice_audio is not None:
+                                st.audio(voice_audio)
+
+                                if st.button(
+                                    "📝 Transcribe & Submit Voice Answer",
+                                    key=f"submit_voice_{session['current_index']}",
+                                    type="primary"
+                                ):
+                                    with st.spinner("Converting the candidate's speech to text..."):
+                                        voice_result = listen_to_candidate(voice_audio.getvalue())
+
+                                    if voice_result["success"]:
+                                        voice_response = voice_result["text"]
+                                        st.session_state[voice_result_key] = voice_response
+
+                                        st.subheader("📝 Transcribed Response")
+                                        st.success(voice_response)
+
+                                        audio_analysis = analyze_audio(voice_audio.getvalue())
+                                        if audio_analysis:
+                                            analysis_col1, analysis_col2 = st.columns(2)
+                                            with analysis_col1:
+                                                st.metric(
+                                                    "Duration",
+                                                    f"{audio_analysis['duration_seconds']}s"
+                                                )
+                                            with analysis_col2:
+                                                st.metric(
+                                                    "Volume Score",
+                                                    f"{audio_analysis['volume_score']}%"
+                                                )
+
+                                        st.info(
+                                            generate_voice_feedback(voice_response)
+                                        )
+
+                                        # Submit the transcribed response to the
+                                        # existing AI interview simulation engine.
+                                        st.session_state.interview_session = submit_answer(
+                                            session,
+                                            voice_response.strip()
+                                        )
+                                        st.session_state.pop(voice_q_key, None)
+                                        st.session_state.pop(voice_result_key, None)
+                                        st.rerun()
+                                    else:
+                                        st.error(voice_result["text"])
+
+                        st.markdown("---")
+                        st.markdown("**⌨️ Or type the candidate's answer**")
+                        answer = st.text_area(
+                            "Type response...",
+                            key=f"answer_{session['current_index']}",
+                            label_visibility="collapsed"
+                        )
+                        if st.button(
+                            "➤ Send",
+                            key=f"send_{session['current_index']}",
+                            type="primary"
+                        ):
                             if answer.strip():
-                                st.session_state.interview_session = submit_answer(session, answer.strip())
+                                st.session_state.interview_session = submit_answer(
+                                    session, answer.strip()
+                                )
+                                st.session_state.pop(voice_q_key, None)
                                 st.rerun()
                             else:
                                 st.warning("Please type a response before sending.")
@@ -1491,42 +1907,174 @@ elif st.session_state.page == "Deployment":
 
     with voice_col:
         st.subheader("🎙️ Voice Screening Module")
-        st.caption("Recruiter-administered: use this while on a screening call, recording the candidate's spoken answer.")
+        st.caption("Recruiter/Admin voice screening: generate a question, let the AI ask it aloud, record the candidate's response in the browser, and review the transcript.")
+
         if all_candidates.empty or all_jobs.empty:
             st.info("Add at least one candidate and one job posting to use voice screening.")
         else:
-            vs_candidate = st.selectbox("Candidate", all_candidates["name"].tolist(), key="vs_candidate")
-            vs_job = st.selectbox("Job", all_jobs["title"].tolist(), key="vs_job")
-            st.caption(f"Ask {vs_candidate} a screening question, then record their spoken response below.")
+            vs_candidate = st.selectbox(
+                "Candidate",
+                all_candidates["name"].tolist(),
+                key="vs_candidate"
+            )
+            vs_job = st.selectbox(
+                "Job",
+                all_jobs["title"].tolist(),
+                key="vs_job"
+            )
+            vs_qtype = st.selectbox(
+                "Question Type",
+                QUESTION_TYPE_OPTIONS,
+                format_func=lambda t: QUESTION_TYPE_LABELS.get(t, t.capitalize()),
+                key="vs_qtype"
+            )
+            vs_difficulty = st.selectbox(
+                "Difficulty",
+                ["Beginner", "Intermediate", "Advanced"],
+                index=1,
+                key="vs_difficulty"
+            )
 
-            try:
-                audio_value = st.audio_input("Record response", key="vs_audio")
-            except AttributeError:
-                audio_value = None
-                st.warning("Your Streamlit version doesn't support `st.audio_input` yet. Run `pip install --upgrade streamlit` and restart the app to enable voice recording.")
+            if st.button("🎯 Generate Screening Question", key="vs_generate_question", type="primary"):
+                vs_job_row = all_jobs[all_jobs["title"] == vs_job].iloc[0].to_dict()
+                vs_questions = generate_questions(vs_job_row, vs_qtype, 1, vs_difficulty)
 
-            if audio_value is not None:
-                st.audio(audio_value)
-                if st.button("🔍 Analyze Recording", type="primary"):
-                    analysis = analyze_audio(audio_value.getvalue())
-                    st.session_state.voice_analysis = analysis
+                if vs_questions:
+                    st.session_state.voice_screening_question = vs_questions[0]
+                    st.session_state.pop("voice_screening_response", None)
+                    st.session_state.pop("voice_screening_feedback", None)
+                    st.session_state.pop("voice_screening_analysis", None)
+                    st.session_state.voice_screening_started = False
+                    st.session_state.pop("vs_audio_processed", None)
+                    st.rerun()
 
-                if "voice_analysis" in st.session_state:
-                    va = st.session_state.voice_analysis
-                    vcol1, vcol2 = st.columns(2)
-                    with vcol1:
-                        st.metric("Duration", f"{va['duration_seconds']}s")
-                    with vcol2:
-                        st.metric("Volume Score", f"{va['volume_score']}%")
-                    st.markdown("**Preliminary Assessment:**")
-                    st.info(va["assessment"])
-                    st.caption("⚠️ Acoustic heuristic only (duration + volume) — not real speech-to-text or communication-skill analysis. Use as a rough triage signal, not a hiring decision.")
+            if "voice_screening_question" in st.session_state:
+                vsq = st.session_state.voice_screening_question
+                vs_type = QUESTION_TYPE_LABELS.get(
+                    vsq.get("type", "technical"),
+                    "Question"
+                )
 
-                    if st.button("✅ Save to ATS as Interview Scheduled"):
-                        cand_row = all_candidates[all_candidates["name"] == vs_candidate].iloc[0]
-                        add_to_ats(vs_candidate, cand_row["email"], vs_job, "Interview Scheduled", username)
-                        st.success("Candidate moved to 'Interview Scheduled' in ATS")
+                st.markdown(
+                    f"<span class='type-badge'>{vs_type}</span>",
+                    unsafe_allow_html=True
+                )
+                st.markdown(
+                    f"<div class='chat-bubble-ai'>🎙️ {vsq['question']}</div>",
+                    unsafe_allow_html=True
+                )
+
+                if not st.session_state.get("voice_screening_started", False):
+                    st.info("Click Start Candidate Voice Screening. The AI will ask the question aloud, then record the candidate's response below.")
+
+                    if st.button("🎤 Start Candidate Voice Screening", key="vs_start_voice", type="primary"):
+                        with st.spinner("AI interviewer is asking the question..."):
+                            spoken = speak_text(vsq["question"])
+
+                        if not spoken:
+                            st.warning(
+                                "The AI interviewer could not start text-to-speech. "
+                                "You can still read the question above and record the candidate's answer."
+                            )
+
+                        st.session_state.voice_screening_started = True
                         st.rerun()
+                else:
+                    st.success(f"🎤 The AI has asked the question. Record {vs_candidate}'s answer below.")
+
+                    try:
+                        vs_audio = st.audio_input(
+                            f"Record {vs_candidate}'s response",
+                            key="vs_audio"
+                        )
+                    except AttributeError:
+                        vs_audio = None
+                        st.error(
+                            "Your Streamlit version does not support st.audio_input(). "
+                            "Run: python -m pip install --upgrade streamlit"
+                        )
+
+                    if vs_audio is not None:
+                        st.audio(vs_audio)
+
+                        if st.button("📝 Transcribe Candidate Response", key="vs_transcribe", type="primary"):
+                            with st.spinner("Converting the candidate's speech to text..."):
+                                result = listen_to_candidate(vs_audio.getvalue())
+
+                            if result["success"]:
+                                response = result["text"]
+                                st.session_state.voice_screening_response = response
+                                st.session_state.voice_screening_analysis = analyze_audio(vs_audio.getvalue())
+                                st.session_state.voice_screening_feedback = generate_voice_feedback(response)
+                                st.session_state.vs_audio_processed = True
+                            else:
+                                st.session_state.voice_screening_response = result["text"]
+                                st.session_state.voice_screening_feedback = result["text"]
+                                st.session_state.pop("voice_screening_analysis", None)
+                                st.session_state.vs_audio_processed = False
+
+                            st.rerun()
+
+                    if "voice_screening_response" in st.session_state:
+                        response = st.session_state.voice_screening_response
+
+                        st.markdown("**📝 Candidate Transcript**")
+                        st.markdown(
+                            f"<div class='chat-bubble-candidate'>{response}</div>",
+                            unsafe_allow_html=True
+                        )
+
+                        if st.session_state.get("vs_audio_processed") and "voice_screening_analysis" in st.session_state:
+                            va = st.session_state.voice_screening_analysis
+                            vcol1, vcol2 = st.columns(2)
+                            with vcol1:
+                                st.metric("Duration", f"{va['duration_seconds']}s")
+                            with vcol2:
+                                st.metric("Volume Score", f"{va['volume_score']}%")
+
+                        if "voice_screening_feedback" in st.session_state:
+                            st.markdown("**🤖 Screening Feedback**")
+                            st.info(st.session_state.voice_screening_feedback)
+
+                        st.caption(
+                            "⚠️ Speech-to-text and automated voice feedback are screening aids. "
+                            "Review the transcript and candidate information yourself; do not use automated voice feedback as the sole hiring decision."
+                        )
+
+                        if st.session_state.get("vs_audio_processed"):
+                            if st.button("🔊 Hear Screening Feedback", key="vs_speak_feedback"):
+                                speak_text(st.session_state.voice_screening_feedback)
+
+                            if st.button("✅ Save to ATS as Interview Scheduled", key="vs_save_ats"):
+                                cand_row = all_candidates[
+                                    all_candidates["name"] == vs_candidate
+                                ].iloc[0]
+
+                                add_to_ats(
+                                    vs_candidate,
+                                    cand_row["email"],
+                                    vs_job,
+                                    "Interview Scheduled",
+                                    username
+                                )
+
+                                st.success(
+                                    "Candidate moved to 'Interview Scheduled' in ATS."
+                                )
+                                st.rerun()
+
+                if st.button("🔄 New Screening Question", key="vs_new_question"):
+                    for key in [
+                        "voice_screening_question",
+                        "voice_screening_response",
+                        "voice_screening_feedback",
+                        "voice_screening_analysis",
+                        "voice_screening_started",
+                        "vs_audio_processed"
+                    ]:
+                        st.session_state.pop(key, None)
+                    st.rerun()
+
 
 # =========================================================
 # PAGE: Analytics
