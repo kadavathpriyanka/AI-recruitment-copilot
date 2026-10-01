@@ -3,3 +3,5 @@ pandas
 plotly
 pymupdf
 python-docx
+SpeechRecognition
+pyttsx3
